@@ -1,0 +1,76 @@
+{
+  "name": "hbs-master",
+  "displayName": "HBS Master",
+  "description": "Инструменты для удобной работы с Handlebars: навигация по partials, автодополнение, документация.",
+  "version": "0.0.2",
+  "publisher": "your-publisher-name",
+  "author": {
+    "name": "Your Name"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/your-username/hbs-master",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/hbs-master.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/hbs-master/issues"
+  },
+  "keywords": [
+    "handlebars",
+    "hbs",
+    "partials",
+    "templates",
+    "navigation",
+    "autocomplete"
+  ],
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:handlebars"
+  ],
+  "scripts": {
+    "compile": "tsc",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "HBS Master",
+      "properties": {
+        "hbsMaster.partialsPath": {
+          "type": "string",
+          "default": "src/partials",
+          "description": "Путь к папке с партиалами относительно корня проекта"
+        },
+        "hbsMaster.enableHoverDocs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включить показ документации при наведении"
+        },
+        "hbsMaster.enableSignatureHelp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включить подсказки параметров"
+        },
+        "hbsMaster.enableParameterHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Включить подсветку параметров"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "@types/vscode": "^1.101.0",
+    "typescript": "^5.8.3",
+    "vsce": "^2.15.0"
+  }
+}
