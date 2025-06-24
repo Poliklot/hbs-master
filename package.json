@@ -3,18 +3,18 @@
   "displayName": "HBS Master",
   "description": "Инструменты для удобной работы с Handlebars: навигация по partials, автодополнение, документация.",
   "version": "0.0.2",
-  "publisher": "your-publisher-name",
+  "publisher": "poliklot",
   "author": {
-    "name": "Your Name"
+    "name": "poliklot"
   },
   "license": "MIT",
-  "homepage": "https://github.com/your-username/hbs-master",
+  "homepage": "https://github.com/poliklot/hbs-master",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/hbs-master.git"
+    "url": "https://github.com/poliklot/hbs-master.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/hbs-master/issues"
+    "url": "https://github.com/poliklot/hbs-master/issues"
   },
   "keywords": [
     "handlebars",
