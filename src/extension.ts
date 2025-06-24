@@ -40,7 +40,11 @@ export function activate(context: vscode.ExtensionContext) {
         const endPos = document.positionAt(match.index + match[0].indexOf("'") + 1 + fullPath.length);
         const range = new vscode.Range(startPos, endPos);
         
-        const filePath = path.join(vscode.workspace.rootPath || '', partialsPath, `${fullPath}.hbs`);
+        const filePath = path.join(
+          getWorkspaceRoot(),
+          partialsPath.replace(/^\.?[\/\\]/, ''),   // убираем ./ при желании
+          `${fullPath}.hbs`
+        );
         
         if (fs.existsSync(filePath)) {
           const uri = vscode.Uri.file(filePath);
@@ -344,4 +348,8 @@ export function activate(context: vscode.ExtensionContext) {
     fileWatcher,
     configChangeHandler
   );
+}
+
+function getWorkspaceRoot(): string {
+  return vscode.workspace.workspaceFolders?.[0].uri.fsPath ?? '';
 }
