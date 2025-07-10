@@ -15,7 +15,7 @@ export function register(ctx: vscode.ExtensionContext) {
       const info = getDoc(comp);
       if (!info || !info.properties.some(p => p.name === param)) return [];
 
-      const regex = new RegExp(`\\b${param}=`, 'g');
+      const regex = new RegExp(`\\b${param}\\??=`, 'g');
       const text  = doc.getText();
       const highlights: vscode.DocumentHighlight[] = [];
 
