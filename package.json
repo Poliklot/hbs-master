@@ -3,7 +3,7 @@
   "displayName": "HBS Master",
   "description": "Инструменты для удобной работы с Handlebars: навигация по partials, автодополнение, документация.",
   "icon": "assets/logo.png",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "publisher": "poliklot",
   "author": {
     "name": "poliklot"
