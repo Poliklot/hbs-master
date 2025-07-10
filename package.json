@@ -3,7 +3,7 @@
   "displayName": "HBS Master",
   "description": "Инструменты для удобной работы с Handlebars: навигация по partials, автодополнение, документация.",
   "icon": "assets/logo.png",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "poliklot",
   "author": {
     "name": "poliklot"
@@ -66,7 +66,10 @@
           "description": "Включить подсветку параметров"
         }
       }
-    }
+    },
+    "languages": [
+      { "id": "handlebars", "extensions": [".hbs"] }
+    ]
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
