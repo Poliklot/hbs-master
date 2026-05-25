@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0] - 2026-05-25
+
+### Fixed
+- Исправлена упаковка VSIX: перед упаковкой выполняется компиляция, а локальные файлы, исходники и тесты исключаются через `.vscodeignore`.
+- Исправлена навигация и document links для multiline, double-quoted, unquoted, block и attribute partials.
+- Исправлено автодополнение параметров: уже указанные параметры больше не предлагаются повторно.
+- Исправлена инвалидация кеша HBSDoc при изменении настроек `hbsMaster`.
+- Исправлен hover по параметру partial-вызова: теперь показывается только документация конкретного параметра, а не весь компонент.
+- Добавлена терпимость к legacy-опечатке `@parametrs` в HBSDoc.
+
+### Improved
+- Добавлены диагностики unknown partial / unknown parameter / duplicate parameter / missing required parameter.
+- Добавлены Quick Fixes для создания missing partial, удаления unknown/duplicate параметров и добавления обязательных параметров.
+- Улучшены hover-подсказки: full component hover на path, compact parameter hover на hash-параметрах, unknown parameter suggestions, required/optional/default, allowed union/boolean values, alias expansion, source file и missing required summary.
+- Добавлена настройка severity для диагностик.
+- Добавлен кеш разбора partial-вызовов и debounce диагностик.
+- Добавлена поддержка `index.hbs` fallback для partial-путей.
+- Подключен AST parser из `@poliklot/prettier-plugin-handlebars`, а общий scanner используется для точных ranges partial-вызовов и hash-параметров.
+- Актуализированы README и HBSDoc specification под текущий синтаксис.
+- Оптимизирован размер иконки расширения.
+- Добавлен GitHub Actions CI для test, strict TypeScript check, dependency audit, integration smoke и VSIX package.
+- Добавлен VS Code integration smoke test и `RELEASE.md` checklist для подготовки `1.0.0`.
+
 ## [0.2.0] - 2025-07-10
 
 ### Added

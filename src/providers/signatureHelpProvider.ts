@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { getConfig }   from '../utils/config';
 import { getDoc }      from '../utils/docs';
-import { HbsDocParser } from '../hbs-doc-parser';
+import { getHashPairAtPosition, getPartialInvocationAtPosition } from '../utils/partials';
 
 export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
@@ -11,15 +11,15 @@ export function register(ctx: vscode.ExtensionContext) {
         provideSignatureHelp(doc, pos) {
           if (!getConfig().get('enableSignatureHelp', true)) return;
 
-          const comp = HbsDocParser.getComponentNameAtPosition(doc, pos);
-          if (!comp) return;
+          const invocation = getPartialInvocationAtPosition(doc, pos);
+          if (!invocation?.component) return;
 
-          const info = getDoc(comp);
+          const info = getDoc(invocation.component, doc);
           if (!info) return;
 
           const sigHelp = new vscode.SignatureHelp();
           const sig = new vscode.SignatureInformation(
-            info.name || comp,
+            info.name || invocation.component,
             info.description
           );
 
@@ -32,10 +32,11 @@ export function register(ctx: vscode.ExtensionContext) {
           });
 
           // определяем активный параметр по названию
-          const cur = HbsDocParser.getCurrentParameter(doc, pos);
-          sigHelp.activeParameter = cur
-            ? info.properties.findIndex(p => p.name === cur)
+          const pair = getHashPairAtPosition(doc, pos, invocation);
+          const index = pair
+            ? info.properties.findIndex(p => p.name === pair.name)
             : 0;
+          sigHelp.activeParameter = index >= 0 ? index : 0;
 
           sigHelp.signatures      = [sig];
           sigHelp.activeSignature = 0;

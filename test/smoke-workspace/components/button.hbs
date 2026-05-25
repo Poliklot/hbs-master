@@ -1,0 +1,13 @@
+{{!--
+  @name Button
+  @description Smoke-test button component.
+
+  @parameters
+  @description Visible label
+  text: string;
+
+  @description Disabled state
+  disabled?: boolean;
+--}}
+
+<button {{#if disabled}}disabled{{/if}}>{{text}}</button>

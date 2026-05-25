@@ -1,0 +1,7 @@
+{
+  "hbsMaster.partialsPath": "components",
+  "hbsMaster.enableHoverDocs": true,
+  "hbsMaster.enableSignatureHelp": true,
+  "hbsMaster.enableParameterHighlight": true,
+  "hbsMaster.enableDiagnostics": true
+}

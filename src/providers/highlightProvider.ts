@@ -1,30 +1,32 @@
 import * as vscode from 'vscode';
 import { getConfig } from '../utils/config';
 import { getDoc }    from '../utils/docs';
-import { HbsDocParser } from '../hbs-doc-parser';
+import { findPartialInvocations, getHashPairAtPosition, getHashPairs, getPartialInvocationAtPosition } from '../utils/partials';
 
 export function register(ctx: vscode.ExtensionContext) {
   const provider = vscode.languages.registerDocumentHighlightProvider('handlebars', {
     provideDocumentHighlights(doc, pos) {
       if (!getConfig().get('enableParameterHighlight', true)) return [];
 
-      const param = HbsDocParser.getCurrentParameter(doc, pos);
-      const comp  = HbsDocParser.getComponentNameAtPosition(doc, pos);
-      if (!param || !comp) return [];
+      const invocation = getPartialInvocationAtPosition(doc, pos);
+      const pair = getHashPairAtPosition(doc, pos, invocation);
+      if (!invocation?.component || !pair) return [];
 
-      const info = getDoc(comp);
-      if (!info || !info.properties.some(p => p.name === param)) return [];
+      const info = getDoc(invocation.component, doc);
+      if (!info || !info.properties.some(p => p.name === pair.name)) return [];
 
-      const regex = new RegExp(`\\b${param}\\??=`, 'g');
-      const text  = doc.getText();
       const highlights: vscode.DocumentHighlight[] = [];
 
-      let m: RegExpExecArray | null;
-      while ((m = regex.exec(text))) {
-        const start = doc.positionAt(m.index);
-        const end   = start.translate(0, param.length);
-        highlights.push(new vscode.DocumentHighlight(new vscode.Range(start, end)));
+      for (const currentInvocation of findPartialInvocations(doc)) {
+        if (currentInvocation.component !== invocation.component) continue;
+
+        for (const currentPair of getHashPairs(doc, currentInvocation)) {
+          if (currentPair.name === pair.name) {
+            highlights.push(new vscode.DocumentHighlight(currentPair.nameRange));
+          }
+        }
       }
+
       return highlights;
     },
   });

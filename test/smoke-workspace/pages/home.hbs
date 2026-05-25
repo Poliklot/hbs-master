@@ -1,0 +1,12 @@
+<main>
+  {{> "button" text="Save" d}}
+
+  {{#> card
+      title="Hero"
+  }}
+    fallback
+  {{/card}}
+
+  {{> "missing" bogus=true}}
+  {{> "card"}}
+</main>

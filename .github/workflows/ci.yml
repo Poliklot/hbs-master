@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile and test
+        run: npm test
+
+      - name: Strict TypeScript sanity check
+        run: npx tsc --noEmit --noUnusedLocals --noUnusedParameters --noImplicitReturns
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Integration smoke test
+        run: xvfb-run -a npm run test:integration
+
+      - name: Package VSIX
+        run: npm run package

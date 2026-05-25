@@ -2,11 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { partialsDir } from '../utils/paths';
-import { log } from '../utils/logger';
-
-// ⇠ NEW:
-import { getDoc } from '../utils/docs';
-import { HbsDocParser } from '../hbs-doc-parser';
 
 /* -------------------------------------------------------------- */
 /*                        FILE + PARAM COMPLETION                 */
@@ -23,22 +18,19 @@ function getFileCompletions(
 
   let searchDir: string;
   let filter = '';
+  const rootPartialsDir = partialsDir(document);
 
   if (current.endsWith('/')) {
-    searchDir = path.join(partialsDir(), current.slice(0, -1));
+    searchDir = path.join(rootPartialsDir, current.slice(0, -1));
   } else if (current.includes('/')) {
-    searchDir = path.join(partialsDir(), path.dirname(current));
+    searchDir = path.join(rootPartialsDir, path.dirname(current));
     filter = path.basename(current);
   } else {
-    searchDir = partialsDir();
+    searchDir = rootPartialsDir;
     filter = current;
   }
 
   if (!fs.existsSync(searchDir)) return [];
-
-  /* ----------------------------------------------------------- */
-  /* ➊  FILE/FOLDER completion (ваша старая логика)              */
-  /* ----------------------------------------------------------- */
 
   const fileItems = fs.readdirSync(searchDir)
     .filter(name =>
@@ -72,42 +64,7 @@ function getFileCompletions(
       return item;
     });
 
-  /* ----------------------------------------------------------- */
-  /* ➋  PARAMETER completion из HBSDoc (Новый пункт 3)           */
-  /* ----------------------------------------------------------- */
-
-  // пытаемся найти *.hbs файл, представляющий сам компонент этой папки
-  const hbsFile = fs.readdirSync(searchDir).find(f => f.endsWith('.hbs'));
-  const paramItems: vscode.CompletionItem[] = [];
-
-  if (hbsFile) {
-    // относительный путь от partialsDir без расширения
-    const compPath = path
-      .relative(partialsDir(), path.join(searchDir, hbsFile))
-      .replace(/\.hbs$/, '')
-      .replace(/\\/g, '/');
-
-    const docInfo = getDoc(compPath);
-    if (docInfo) {
-      paramItems.push(
-        ...HbsDocParser.createCompletionItems(docInfo).map(ci => {
-          // чтобы свойство заменяло текущий ввод (и убирало `/`-префикс, если был)
-          ci.range = new vscode.Range(
-            position.line,
-            position.character - filter.length - (hasLeadingSlash ? 1 : 0),
-            position.line,
-            position.character
-          );
-          return ci;
-        })
-      );
-    }
-  }
-
-  /* ----------------------------------------------------------- */
-  /* ➌  Объединяем и возвращаем                                  */
-  /* ----------------------------------------------------------- */
-  return [...paramItems, ...fileItems];
+  return fileItems;
 }
 
 /* -------------------------------------------------------------- */
@@ -122,7 +79,7 @@ export function register(ctx: vscode.ExtensionContext) {
     {
       provideCompletionItems(document, position) {
         const linePrefix = document.lineAt(position).text.slice(0, position.character);
-        const m = linePrefix.match(/\{\{\>\s*['"]([^'"]*?)$/);
+        const m = linePrefix.match(/\{\{~?\s*#?>\s*['"]([^'"]*?)$/);
         if (!m) { insidePartial = false; return; }
 
         const quotePos  = linePrefix.lastIndexOf(m[1]) - 1;
