@@ -57,14 +57,30 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
 
   const diagnostics: vscode.Diagnostic[] = [];
   const severity = configuredSeverity(doc);
+  const componentCache = new Map<string, {
+    file: string | null;
+    exists: boolean;
+    info: ReturnType<typeof getDoc>;
+  }>();
 
   for (const invocation of findPartialInvocations(doc)) {
     if (!invocation.component || !invocation.componentRange) continue;
     if (isRuntimePartial(invocation.component)) continue;
     if (getVisibleInlinePartialDefinition(doc, invocation.component, invocation.fullRange.start)) continue;
 
-    const file = partialFilePath(invocation.component, doc);
-    if (!file || !fs.existsSync(file)) {
+    let component = componentCache.get(invocation.component);
+    if (!component) {
+      const file = partialFilePath(invocation.component, doc);
+      const exists = !!file && fs.existsSync(file);
+      component = {
+        file,
+        exists,
+        info: exists ? getDoc(invocation.component, doc) : null,
+      };
+      componentCache.set(invocation.component, component);
+    }
+
+    if (!component.exists) {
       diagnostics.push(createDiagnostic(
         invocation.componentRange,
         `Unknown partial: ${invocation.component}`,
@@ -74,7 +90,7 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
       continue;
     }
 
-    const info = getDoc(invocation.component, doc);
+    const info = component.info;
     if (!info) continue;
 
     const properties = new Map(info.properties.map(property => [property.name, property]));

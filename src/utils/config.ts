@@ -10,10 +10,15 @@ function normalizeConfiguredPath(raw: string): string {
 
 export function getPartialsPaths(document?: vscode.TextDocument): string[] {
   const config = getConfig(document);
-  const configured = config.get<string[]>('partialsPaths', []);
+  const configuredValue = config.get<unknown>('partialsPaths', []);
+  const configured = Array.isArray(configuredValue)
+    ? configuredValue.filter((value): value is string => typeof value === 'string')
+    : [];
+  const legacyValue = config.get<unknown>('partialsPath', 'src/partials');
+  const legacyPath = typeof legacyValue === 'string' ? legacyValue : 'src/partials';
   const rawPaths = configured.length
     ? configured
-    : [config.get<string>('partialsPath', 'src/partials')];
+    : [legacyPath];
 
   const paths = rawPaths
     .map(normalizeConfiguredPath)

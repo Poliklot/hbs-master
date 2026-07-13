@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
+  isPathInside,
   isSafePathInside,
   PARTIAL_FILE_EXTENSIONS,
   partialsDirs,
@@ -107,7 +108,8 @@ function getFileCompletions(
       if (entry.name.startsWith('.') || !entry.name.toLowerCase().startsWith(context.filter.toLowerCase())) continue;
 
       const fullPath = path.join(searchDir, entry.name);
-      if (!isSafePathInside(root, fullPath)) continue;
+      if (!isPathInside(root, fullPath)) continue;
+      if (entry.isSymbolicLink() && !isSafePathInside(root, fullPath)) continue;
 
       let isDirectory = entry.isDirectory();
       let isFile = entry.isFile();

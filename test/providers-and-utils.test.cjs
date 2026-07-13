@@ -89,6 +89,17 @@ test('config and path utilities support multiple partial roots and .handlebars f
   assert.equal(paths.partialFilePath('../outside'), null);
 });
 
+test('config falls back safely when partial path settings have invalid runtime values', () => {
+  const { root } = makeWorkspace();
+  resetMock(root, {
+    'hbsMaster.partialsPaths': 'not-an-array',
+    'hbsMaster.partialsPath': 42,
+  });
+
+  const config = fresh('../dist/utils/config.js');
+  assert.deepEqual(config.getPartialsPaths(), ['src/partials']);
+});
+
 test('docs utility reads HBSDoc, caches it, and watcher invalidates cache', () => {
   const { root, partials } = makeWorkspace();
   resetMock(root);
@@ -312,6 +323,25 @@ test('file completion supports multiline and unquoted paths without escaping par
   const traversal = new TestTextDocument(`{{> "../../../out"}}`);
   const traversalItems = provider.provideCompletionItems(traversal, positionAfter(traversal, '../../../out'));
   assert.deepEqual(traversalItems, []);
+});
+
+test('path resolution and completion reject symlinks that escape partial roots', () => {
+  if (process.platform === 'win32') return;
+
+  const { root, partials } = makeWorkspace();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hbs-master-outside-'));
+  fs.writeFileSync(path.join(outside, 'leak.hbs'), 'outside');
+  fs.symlinkSync(outside, path.join(partials, 'escape'), 'dir');
+  resetMock(root);
+
+  const paths = fresh('../dist/utils/paths.js');
+  assert.equal(paths.partialFilePath('escape/leak'), null);
+
+  const completion = fresh('../dist/providers/completionProvider.js');
+  completion.register({ subscriptions: [] });
+  const provider = vscode.__mock.registrations('completion')[0].provider;
+  const document = new TestTextDocument(`{{> "escape/le"}}`);
+  assert.deepEqual(provider.provideCompletionItems(document, positionAfter(document, 'escape/le')), []);
 });
 
 test('param completion provider filters HBSDoc props in multiline partial calls and skips path editing', () => {
