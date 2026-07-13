@@ -208,6 +208,10 @@ function readBareToken(text: string, startOffset: number, endOffset: number): nu
   return i;
 }
 
+function contentEndBeforeClosingMustache(text: string, closeStartOffset: number): number {
+  return text[closeStartOffset - 1] === '~' ? closeStartOffset - 1 : closeStartOffset;
+}
+
 function toRange(document: vscode.TextDocument, startOffset: number, endOffset: number): vscode.Range {
   return new vscode.Range(document.positionAt(startOffset), document.positionAt(endOffset));
 }
@@ -225,26 +229,27 @@ function scanPartialInvocations(document: vscode.TextDocument): PartialInvocatio
     if (closeOffset === -1) break;
 
     const closeStartOffset = closeOffset - 2;
-    let componentStartOffset = skipWhitespace(text, PARTIAL_OPEN_RE.lastIndex, closeStartOffset);
+    const contentEndOffset = contentEndBeforeClosingMustache(text, closeStartOffset);
+    let componentStartOffset = skipWhitespace(text, PARTIAL_OPEN_RE.lastIndex, contentEndOffset);
     let componentEndOffset = componentStartOffset;
     let component: string | null = null;
     let componentRange: vscode.Range | undefined;
 
-    if (componentStartOffset < closeStartOffset) {
+    if (componentStartOffset < contentEndOffset) {
       const first = text[componentStartOffset];
 
       if (first === '"' || first === "'") {
-        const quotedEndOffset = readQuoted(text, componentStartOffset, first, closeStartOffset);
+        const quotedEndOffset = readQuoted(text, componentStartOffset, first, contentEndOffset);
         componentEndOffset = quotedEndOffset;
 
-        if (quotedEndOffset <= closeStartOffset && text[quotedEndOffset - 1] === first) {
+        if (quotedEndOffset <= contentEndOffset && text[quotedEndOffset - 1] === first) {
           component = text.slice(componentStartOffset + 1, quotedEndOffset - 1);
           componentRange = toRange(document, componentStartOffset + 1, quotedEndOffset - 1);
         }
       } else if (first === '(') {
-        componentEndOffset = readBalanced(text, componentStartOffset, closeStartOffset);
+        componentEndOffset = readBalanced(text, componentStartOffset, contentEndOffset);
       } else {
-        componentEndOffset = readBareToken(text, componentStartOffset, closeStartOffset);
+        componentEndOffset = readBareToken(text, componentStartOffset, contentEndOffset);
         component = text.slice(componentStartOffset, componentEndOffset);
         componentRange = toRange(document, componentStartOffset, componentEndOffset);
       }
@@ -255,7 +260,7 @@ function scanPartialInvocations(document: vscode.TextDocument): PartialInvocatio
       componentRange,
       fullRange: toRange(document, fullStartOffset, closeOffset),
       hashStartOffset: componentEndOffset,
-      hashEndOffset: closeStartOffset,
+      hashEndOffset: contentEndOffset,
       isBlock: match[1] === '#',
     });
 
@@ -314,6 +319,7 @@ export function getHashPairs(
 
     const nameMatch = text.slice(offset, endOffset).match(/^([\w-]+)\s*=/);
     if (!nameMatch) {
+      const previousOffset = offset;
       if (text[offset] === '"' || text[offset] === "'") {
         offset = readQuoted(text, offset, text[offset], endOffset);
       } else if (text[offset] === '(' || text[offset] === '[' || text[offset] === '{') {
@@ -321,6 +327,9 @@ export function getHashPairs(
       } else {
         offset = readBareToken(text, offset, endOffset);
       }
+
+      // Malformed or partially typed input must never stall the extension host.
+      if (offset <= previousOffset) offset = previousOffset + 1;
       continue;
     }
 
@@ -351,7 +360,8 @@ export function getHashPairs(
       fullRange: toRange(document, nameStartOffset, valueEndOffset),
     });
 
-    offset = valueEndOffset > valueStartOffset ? valueEndOffset : valueStartWithEqualsOffset;
+    const nextOffset = valueEndOffset > valueStartOffset ? valueEndOffset : valueStartWithEqualsOffset;
+    offset = nextOffset > offset ? nextOffset : offset + 1;
   }
 
   return pairs;

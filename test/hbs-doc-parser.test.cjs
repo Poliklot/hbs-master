@@ -249,3 +249,27 @@ test('component helpers understand unquoted and block partials and parameter-nam
   assert.equal(HbsDocParser.getComponentNameAtPosition(document, positionOf(document, 'components/card')), 'components/card');
   assert.equal(HbsDocParser.getCurrentParameter(document, positionOf(document, 'title')), 'title');
 });
+
+test('partial scanner handles closing whitespace control without stalling', () => {
+  const document = new TestTextDocument(`{{~> components/button text="Save" disabled=true~}}`);
+  const partials = require('../dist/utils/partials.js');
+
+  const invocation = partials.findPartialInvocations(document)[0];
+  assert.ok(invocation);
+  assert.equal(invocation.component, 'components/button');
+  assert.equal(document.offsetAt(invocation.fullRange.end), document.getText().length);
+  assert.equal(document.getText().slice(invocation.hashEndOffset), '~}}');
+
+  const pairs = partials.getHashPairs(document, invocation);
+  assert.deepEqual(pairs.map(pair => pair.name), ['text', 'disabled']);
+  assert.equal(document.getText(pairs[1].valueRange), 'true');
+});
+
+test('partial scanner always advances over malformed hash input', () => {
+  const document = new TestTextDocument(`{{> components/button ~~ text="Save"}}`);
+  const partials = require('../dist/utils/partials.js');
+  const invocation = partials.findPartialInvocations(document)[0];
+
+  assert.ok(invocation);
+  assert.deepEqual(partials.getHashPairs(document, invocation).map(pair => pair.name), ['text']);
+});
