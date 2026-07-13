@@ -1,37 +1,50 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { HbsDocParser, HbsDocInfo } from '../hbs-doc-parser';
-import { normalizePartialPath, partialFilePath, partialsDir } from './paths';
+import { partialFilePath } from './paths';
 
-const cache = new Map<string, HbsDocInfo>();
-
-function cacheKey(componentPath: string, document?: vscode.TextDocument): string | null {
-  const normalized = normalizePartialPath(componentPath);
-  if (!normalized) return null;
-
-  return `${partialsDir(document)}::${normalized}`;
+interface DocsCacheEntry {
+  info: HbsDocInfo;
+  openDocumentText?: string;
 }
+
+const cache = new Map<string, DocsCacheEntry>();
 
 export function clearDocsCache() {
   cache.clear();
 }
 
 export function getDoc(componentPath: string, document?: vscode.TextDocument): HbsDocInfo | null {
-  const key = cacheKey(componentPath, document);
-  if (!key) return null;
-  if (cache.has(key)) return cache.get(key)!;
-
   const file = partialFilePath(componentPath, document);
-  if (!file) return null;
-  if (!fs.existsSync(file)) return null;
+  if (!file || !fs.existsSync(file)) return null;
 
-  const parsed = HbsDocParser.parseHbsDoc(fs.readFileSync(file, 'utf8'));
-  if (parsed) cache.set(key, parsed);
+  const key = file;
+  const openDocument = (vscode.workspace.textDocuments ?? []).find(document => document.uri.fsPath === file);
+  if (openDocument) {
+    const text = openDocument.getText();
+    const cached = cache.get(key);
+    if (cached?.openDocumentText === text) return cached.info;
+
+    const parsed = HbsDocParser.parseHbsDoc(text);
+    if (parsed) cache.set(key, { info: parsed, openDocumentText: text });
+    return parsed;
+  }
+
+  const cached = cache.get(key);
+  if (cached && cached.openDocumentText === undefined) return cached.info;
+
+  let parsed: HbsDocInfo | null;
+  try {
+    parsed = HbsDocParser.parseHbsDoc(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (parsed) cache.set(key, { info: parsed });
   return parsed;
 }
 
 export function watchDocs(ctx: vscode.ExtensionContext) {
-  const watcher = vscode.workspace.createFileSystemWatcher('**/*.hbs');
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{hbs,handlebars}');
   watcher.onDidChange(clearDocsCache);
   watcher.onDidCreate(clearDocsCache);
   watcher.onDidDelete(clearDocsCache);

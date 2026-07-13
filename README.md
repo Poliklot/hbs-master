@@ -1,12 +1,12 @@
 # HBS Master
 
-VS Code tooling for productive work with classic Handlebars (`.hbs`) templates.
+VS Code tooling for productive work with classic Handlebars (`.hbs` and `.handlebars`) templates.
 
 HBS Master helps you navigate partials, document component APIs with HBSDoc, autocomplete component parameters, and catch common template mistakes before runtime.
 
 ## Features
 
-- **Partial path completion**: smart path suggestions for `{{> '...'}}`, including nested folders.
+- **Partial path completion**: smart path suggestions for quoted, unquoted, multiline, and nested partial paths.
 - **Go to partial definition**: jump to partial files with Ctrl/Cmd+Click or F12.
 - **Parameter completion**: autocomplete documented component parameters from HBSDoc.
 - **AST-backed partial discovery**: Handlebars parsing via `@poliklot/prettier-plugin-handlebars` with precise ranges for paths and parameters.
@@ -56,6 +56,15 @@ Dynamic partials cannot be resolved statically and are intentionally ignored:
 ```handlebars
 {{> (lookup . "partialName")}}
 ```
+
+Scoped inline partial definitions are also understood by Go to Definition and diagnostics:
+
+```handlebars
+{{#*inline "local-label"}}<span>{{text}}</span>{{/inline}}
+{{> local-label text="Ready"}}
+```
+
+The Handlebars runtime partial `@partial-block` is recognized and is not reported as a missing file.
 
 ### Hover behavior
 
@@ -115,7 +124,8 @@ See [HBSDoc-spec.md](./HBSDoc-spec.md) for the full specification.
 
 ## Settings
 
-- `hbsMaster.partialsPath`: partials directory relative to the workspace root. Default: `src/partials`.
+- `hbsMaster.partialsPath`: partials directory relative to the current workspace folder. Default: `src/partials`.
+- `hbsMaster.partialsPaths`: ordered list of partials directories. When set, it takes precedence over `partialsPath`; the first directory is used by the create-partial Quick Fix.
 - `hbsMaster.enableHoverDocs`: enable hover documentation. Default: `true`.
 - `hbsMaster.enableSignatureHelp`: enable signature help. Default: `true`.
 - `hbsMaster.enableParameterHighlight`: enable parameter highlighting. Default: `true`.
@@ -126,7 +136,7 @@ Example workspace settings:
 
 ```json
 {
-  "hbsMaster.partialsPath": "components",
+  "hbsMaster.partialsPaths": ["src/partials", "shared/components"],
   "hbsMaster.diagnosticsSeverity": "warning"
 }
 ```
@@ -150,12 +160,12 @@ Install the generated `.vsix` in VS Code:
 2. Open the Extensions view.
 3. Click `...` in the Extensions view toolbar.
 4. Select `Install from VSIX...`.
-5. Choose `hbs-master-1.0.0.vsix`.
+5. Choose `hbs-master-1.1.0.vsix`.
 
 Or install from the command line:
 
 ```bash
-code --install-extension hbs-master-1.0.0.vsix
+code --install-extension hbs-master-1.1.0.vsix
 ```
 
 After installing, open a project with `.hbs` files and configure `hbsMaster.partialsPath` if your partials are not under `src/partials`.
@@ -176,6 +186,7 @@ npm run package
 ## Known limitations
 
 - Dynamic partials such as `{{> (lookup . "partialName")}}` are not resolved because the target file name is only known at runtime.
+- Inline partials support scoped navigation and missing-partial diagnostics, but file-based HBSDoc parameter intelligence applies only to partial files.
 - Diagnostics and completions are based on HBSDoc comments. Undocumented partials can still be navigated to, but parameter intelligence is unavailable.
 - HBS Master targets classic Handlebars templates and static partial calls.
 

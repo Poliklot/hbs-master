@@ -16,15 +16,29 @@ export interface PartialHashPair {
   fullRange: vscode.Range;
 }
 
+export interface InlinePartialDefinition {
+  name: string;
+  nameRange: vscode.Range;
+  fullRange: vscode.Range;
+  scopeStartOffset: number;
+  scopeEndOffset: number;
+}
+
 interface PartialParseCacheEntry {
   text: string;
   version?: number;
   invocations: PartialInvocation[];
+  inlineDefinitions: InlinePartialDefinition[];
 }
 
 const partialParseCache = new WeakMap<vscode.TextDocument, PartialParseCacheEntry>();
 
 const PARTIAL_OPEN_RE = /\{\{~?\s*(#?)>\s*/g;
+const INLINE_PARTIAL_OPEN_RE = /\{\{~?\s*#\*inline\s+/g;
+
+export function isRuntimePartial(component: string): boolean {
+  return component === '@partial-block';
+}
 
 interface AstNode {
   type?: string;
@@ -37,6 +51,8 @@ interface AstNode {
   inverse?: AstNode;
   inverseChain?: AstNode[];
   blockPrefix?: string;
+  path?: string;
+  params?: string[];
   range?: [number, number];
 }
 
@@ -55,6 +71,12 @@ interface AstParser {
 interface AstPartialIndex {
   starts: Set<number>;
   unmatchedRanges: Array<[number, number]>;
+  inlineDefinitions: Array<{
+    name: string;
+    start: number;
+    scopeStartOffset: number;
+    scopeEndOffset: number;
+  }>;
 }
 
 let astParser: AstParser | null | undefined;
@@ -86,12 +108,39 @@ function getAstPartialIndex(text: string): AstPartialIndex | null {
     const ast = parser.parse(text);
     const starts = new Set<number>();
     const unmatchedRanges: Array<[number, number]> = [];
-    const visit = (node: AstNode | null | undefined) => {
+    const inlineDefinitions: AstPartialIndex['inlineDefinitions'] = [];
+    const visit = (
+      node: AstNode | null | undefined,
+      scope: [number, number] = [0, text.length]
+    ) => {
       if (!node) return;
+
+      let currentScope = scope;
+      if (node.type === 'Program') {
+        const start = parser.locStart(node);
+        const end = parser.locEnd(node);
+        if (Number.isInteger(start) && Number.isInteger(end) && end >= start) {
+          currentScope = [start, end];
+        }
+      }
 
       if (node.type === 'PartialStatement' || (node.type === 'BlockStatement' && node.blockPrefix === '#>')) {
         const start = parser.locStart(node);
         if (Number.isInteger(start) && start >= 0) starts.add(start);
+      }
+
+      if (node.type === 'BlockStatement' && node.blockPrefix === '#*' && node.path === 'inline') {
+        const start = parser.locStart(node);
+        const rawName = node.params?.[0];
+        const name = rawName?.replace(/^(['"])(.*)\1$/, '$2');
+        if (name && Number.isInteger(start) && start >= 0) {
+          inlineDefinitions.push({
+            name,
+            start,
+            scopeStartOffset: currentScope[0],
+            scopeEndOffset: currentScope[1],
+          });
+        }
       }
 
       if (node.type === 'UnmatchedNode') {
@@ -102,21 +151,21 @@ function getAstPartialIndex(text: string): AstPartialIndex | null {
         }
       }
 
-      node.body?.forEach(visit);
-      node.children?.forEach(visit);
-      node.parts?.forEach(visit);
+      node.body?.forEach(child => visit(child, currentScope));
+      node.children?.forEach(child => visit(child, currentScope));
+      node.parts?.forEach(child => visit(child, currentScope));
       node.attributes?.forEach(attribute => {
-        visit(attribute.value);
-        visit(attribute.block);
+        visit(attribute.value, currentScope);
+        visit(attribute.block, currentScope);
       });
-      visit(node.block);
-      visit(node.program);
-      visit(node.inverse);
-      node.inverseChain?.forEach(visit);
+      visit(node.block, currentScope);
+      visit(node.program, currentScope);
+      visit(node.inverse, currentScope);
+      node.inverseChain?.forEach(child => visit(child, currentScope));
     };
 
     visit(ast);
-    return { starts, unmatchedRanges };
+    return { starts, unmatchedRanges, inlineDefinitions };
   } catch {
     return null;
   }
@@ -208,6 +257,10 @@ function readBareToken(text: string, startOffset: number, endOffset: number): nu
   return i;
 }
 
+function contentEndBeforeClosingMustache(text: string, closeStartOffset: number): number {
+  return text[closeStartOffset - 1] === '~' ? closeStartOffset - 1 : closeStartOffset;
+}
+
 function toRange(document: vscode.TextDocument, startOffset: number, endOffset: number): vscode.Range {
   return new vscode.Range(document.positionAt(startOffset), document.positionAt(endOffset));
 }
@@ -225,26 +278,27 @@ function scanPartialInvocations(document: vscode.TextDocument): PartialInvocatio
     if (closeOffset === -1) break;
 
     const closeStartOffset = closeOffset - 2;
-    let componentStartOffset = skipWhitespace(text, PARTIAL_OPEN_RE.lastIndex, closeStartOffset);
+    const contentEndOffset = contentEndBeforeClosingMustache(text, closeStartOffset);
+    let componentStartOffset = skipWhitespace(text, PARTIAL_OPEN_RE.lastIndex, contentEndOffset);
     let componentEndOffset = componentStartOffset;
     let component: string | null = null;
     let componentRange: vscode.Range | undefined;
 
-    if (componentStartOffset < closeStartOffset) {
+    if (componentStartOffset < contentEndOffset) {
       const first = text[componentStartOffset];
 
       if (first === '"' || first === "'") {
-        const quotedEndOffset = readQuoted(text, componentStartOffset, first, closeStartOffset);
+        const quotedEndOffset = readQuoted(text, componentStartOffset, first, contentEndOffset);
         componentEndOffset = quotedEndOffset;
 
-        if (quotedEndOffset <= closeStartOffset && text[quotedEndOffset - 1] === first) {
+        if (quotedEndOffset <= contentEndOffset && text[quotedEndOffset - 1] === first) {
           component = text.slice(componentStartOffset + 1, quotedEndOffset - 1);
           componentRange = toRange(document, componentStartOffset + 1, quotedEndOffset - 1);
         }
       } else if (first === '(') {
-        componentEndOffset = readBalanced(text, componentStartOffset, closeStartOffset);
+        componentEndOffset = readBalanced(text, componentStartOffset, contentEndOffset);
       } else {
-        componentEndOffset = readBareToken(text, componentStartOffset, closeStartOffset);
+        componentEndOffset = readBareToken(text, componentStartOffset, contentEndOffset);
         component = text.slice(componentStartOffset, componentEndOffset);
         componentRange = toRange(document, componentStartOffset, componentEndOffset);
       }
@@ -255,7 +309,7 @@ function scanPartialInvocations(document: vscode.TextDocument): PartialInvocatio
       componentRange,
       fullRange: toRange(document, fullStartOffset, closeOffset),
       hashStartOffset: componentEndOffset,
-      hashEndOffset: closeStartOffset,
+      hashEndOffset: contentEndOffset,
       isBlock: match[1] === '#',
     });
 
@@ -265,38 +319,124 @@ function scanPartialInvocations(document: vscode.TextDocument): PartialInvocatio
   return invocations;
 }
 
-export function findPartialInvocations(document: vscode.TextDocument): PartialInvocation[] {
+function scanInlinePartialDefinitions(document: vscode.TextDocument): InlinePartialDefinition[] {
+  const text = document.getText();
+  const definitions: InlinePartialDefinition[] = [];
+
+  INLINE_PARTIAL_OPEN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = INLINE_PARTIAL_OPEN_RE.exec(text))) {
+    const closeOffset = findClosingMustache(text, INLINE_PARTIAL_OPEN_RE.lastIndex);
+    if (closeOffset < 0) break;
+
+    const closeStartOffset = contentEndBeforeClosingMustache(text, closeOffset - 2);
+    const nameStartOffset = skipWhitespace(text, INLINE_PARTIAL_OPEN_RE.lastIndex, closeStartOffset);
+    const quote = text[nameStartOffset] === '"' || text[nameStartOffset] === "'"
+      ? text[nameStartOffset]
+      : null;
+    const nameEndOffset = quote
+      ? readQuoted(text, nameStartOffset, quote, closeStartOffset)
+      : readBareToken(text, nameStartOffset, closeStartOffset);
+    const hasClosingQuote = quote && text[nameEndOffset - 1] === quote;
+    const name = quote
+      ? hasClosingQuote ? text.slice(nameStartOffset + 1, nameEndOffset - 1) : ''
+      : text.slice(nameStartOffset, nameEndOffset);
+
+    if (name) {
+      definitions.push({
+        name,
+        nameRange: quote
+          ? toRange(document, nameStartOffset + 1, nameEndOffset - 1)
+          : toRange(document, nameStartOffset, nameEndOffset),
+        fullRange: toRange(document, match.index, closeOffset),
+        scopeStartOffset: 0,
+        scopeEndOffset: text.length,
+      });
+    }
+
+    INLINE_PARTIAL_OPEN_RE.lastIndex = closeOffset;
+  }
+
+  return definitions;
+}
+
+function parsePartialDocument(document: vscode.TextDocument): PartialParseCacheEntry {
   const text = document.getText();
   const version = typeof document.version === 'number' ? document.version : undefined;
   const cached = partialParseCache.get(document);
 
-  if (cached && cached.text === text && cached.version === version) {
-    return cached.invocations;
-  }
+  if (cached && cached.text === text && cached.version === version) return cached;
 
-  const scanned = scanPartialInvocations(document);
+  const scannedInvocations = scanPartialInvocations(document);
+  const scannedInlineDefinitions = scanInlinePartialDefinitions(document);
   const astIndex = getAstPartialIndex(text);
+  const invocations = astIndex
+    ? scannedInvocations.filter(invocation => {
+        const start = document.offsetAt(invocation.fullRange.start);
+        return astIndex.starts.has(start)
+          || astIndex.unmatchedRanges.some(([rangeStart, rangeEnd]) => start >= rangeStart && start < rangeEnd);
+      })
+    : scannedInvocations;
+  const inlineDefinitions = astIndex
+    ? scannedInlineDefinitions.flatMap(definition => {
+        const start = document.offsetAt(definition.fullRange.start);
+        const astDefinition = astIndex.inlineDefinitions.find(candidate =>
+          candidate.start === start && candidate.name === definition.name
+        );
+        return astDefinition
+          ? [{
+              ...definition,
+              scopeStartOffset: astDefinition.scopeStartOffset,
+              scopeEndOffset: astDefinition.scopeEndOffset,
+            }]
+          : [];
+      })
+    : scannedInlineDefinitions;
 
-  if (!astIndex) {
-    partialParseCache.set(document, { text, version, invocations: scanned });
-    return scanned;
-  }
+  const entry = { text, version, invocations, inlineDefinitions };
+  partialParseCache.set(document, entry);
+  return entry;
+}
 
-  const invocations = scanned.filter(invocation => {
-    const start = document.offsetAt(invocation.fullRange.start);
-    return astIndex.starts.has(start)
-      || astIndex.unmatchedRanges.some(([rangeStart, rangeEnd]) => start >= rangeStart && start < rangeEnd);
-  });
+export function findPartialInvocations(document: vscode.TextDocument): PartialInvocation[] {
+  return parsePartialDocument(document).invocations;
+}
 
-  partialParseCache.set(document, { text, version, invocations });
-  return invocations;
+export function findInlinePartialDefinitions(document: vscode.TextDocument): InlinePartialDefinition[] {
+  return parsePartialDocument(document).inlineDefinitions;
+}
+
+export function getVisibleInlinePartialDefinition(
+  document: vscode.TextDocument,
+  component: string,
+  position: vscode.Position
+): InlinePartialDefinition | undefined {
+  const offset = document.offsetAt(position);
+  return findInlinePartialDefinitions(document)
+    .filter(definition =>
+      definition.name === component
+      && offset >= document.offsetAt(definition.fullRange.end)
+      && offset >= definition.scopeStartOffset
+      && offset < definition.scopeEndOffset
+    )
+    .sort((left, right) => {
+      const leftScope = left.scopeEndOffset - left.scopeStartOffset;
+      const rightScope = right.scopeEndOffset - right.scopeStartOffset;
+      return leftScope - rightScope || document.offsetAt(right.fullRange.start) - document.offsetAt(left.fullRange.start);
+    })[0];
 }
 
 export function getPartialInvocationAtPosition(
   document: vscode.TextDocument,
   position: vscode.Position
 ): PartialInvocation | undefined {
-  return findPartialInvocations(document).find(invocation => invocation.fullRange.contains(position));
+  const offset = document.offsetAt(position);
+  return findPartialInvocations(document).find(invocation => {
+    const start = document.offsetAt(invocation.fullRange.start);
+    const end = document.offsetAt(invocation.fullRange.end);
+    return offset >= start && offset < end;
+  });
 }
 
 export function getHashPairs(
@@ -314,6 +454,7 @@ export function getHashPairs(
 
     const nameMatch = text.slice(offset, endOffset).match(/^([\w-]+)\s*=/);
     if (!nameMatch) {
+      const previousOffset = offset;
       if (text[offset] === '"' || text[offset] === "'") {
         offset = readQuoted(text, offset, text[offset], endOffset);
       } else if (text[offset] === '(' || text[offset] === '[' || text[offset] === '{') {
@@ -321,6 +462,9 @@ export function getHashPairs(
       } else {
         offset = readBareToken(text, offset, endOffset);
       }
+
+      // Malformed or partially typed input must never stall the extension host.
+      if (offset <= previousOffset) offset = previousOffset + 1;
       continue;
     }
 
@@ -351,7 +495,8 @@ export function getHashPairs(
       fullRange: toRange(document, nameStartOffset, valueEndOffset),
     });
 
-    offset = valueEndOffset > valueStartOffset ? valueEndOffset : valueStartWithEqualsOffset;
+    const nextOffset = valueEndOffset > valueStartOffset ? valueEndOffset : valueStartWithEqualsOffset;
+    offset = nextOffset > offset ? nextOffset : offset + 1;
   }
 
   return pairs;

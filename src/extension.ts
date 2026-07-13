@@ -15,6 +15,7 @@ import * as actions from './providers/codeActionProvider';
 
 export function activate(ctx: vscode.ExtensionContext) {
   channel.appendLine('HBS Master activated!');
+  ctx.subscriptions.push(channel);
 
   watchDocs(ctx);
   def.register(ctx);

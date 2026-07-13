@@ -1,11 +1,13 @@
 const { vscode } = require('./vscode-mock.cjs');
 
 class TestTextDocument {
-  constructor(text, fsPath = '/test/document.hbs') {
+  constructor(text, fsPath = '/test/document.hbs', languageId = 'handlebars') {
     this._text = text.replace(/\r\n/g, '\n');
     this._lines = this._text.split('\n');
     this.lineCount = this._lines.length;
     this.uri = vscode.Uri.file(fsPath);
+    this.languageId = languageId;
+    this.version = 1;
   }
 
   lineAt(lineOrPosition) {

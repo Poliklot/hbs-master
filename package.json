@@ -3,7 +3,7 @@
   "displayName": "HBS Master",
   "description": "VS Code tooling for Handlebars partial navigation, autocomplete, diagnostics, and HBSDoc documentation.",
   "icon": "assets/logo.png",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "poliklot",
   "author": {
     "name": "poliklot"
@@ -27,6 +27,19 @@
   ],
   "engines": {
     "vscode": "^1.101.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Navigation and documentation remain available, while file-creation Quick Fixes are disabled.",
+      "restrictedConfigurations": [
+        "hbsMaster.partialsPath",
+        "hbsMaster.partialsPaths"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
   },
   "categories": [
     "Programming Languages",
@@ -54,33 +67,53 @@
         "hbsMaster.partialsPath": {
           "type": "string",
           "default": "src/partials",
-          "description": "Путь к папке с партиалами относительно корня проекта"
+          "scope": "resource",
+          "description": "Path to the partials directory, relative to the current workspace folder. Used when partialsPaths is empty."
+        },
+        "hbsMaster.partialsPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Ordered partials directories relative to the current workspace folder. The first directory is used when creating a missing partial."
         },
         "hbsMaster.enableHoverDocs": {
           "type": "boolean",
           "default": true,
-          "description": "Включить показ документации при наведении"
+          "scope": "resource",
+          "description": "Show HBSDoc documentation on hover."
         },
         "hbsMaster.enableSignatureHelp": {
           "type": "boolean",
           "default": true,
-          "description": "Включить подсказки параметров"
+          "scope": "resource",
+          "description": "Show component parameter signature help."
         },
         "hbsMaster.enableParameterHighlight": {
           "type": "boolean",
           "default": true,
-          "description": "Включить подсветку параметров"
+          "scope": "resource",
+          "description": "Highlight matching parameters in partial calls."
         },
         "hbsMaster.enableDiagnostics": {
           "type": "boolean",
           "default": true,
-          "description": "Включить диагностики partials и параметров компонентов"
+          "scope": "resource",
+          "description": "Report partial and documented component parameter problems."
         },
         "hbsMaster.diagnosticsSeverity": {
           "type": "string",
-          "enum": ["hint", "information", "warning", "error"],
+          "enum": [
+            "hint",
+            "information",
+            "warning",
+            "error"
+          ],
           "default": "warning",
-          "description": "Уровень важности диагностик HBS Master"
+          "scope": "resource",
+          "description": "Severity used for HBS Master diagnostics."
         }
       }
     },
@@ -88,19 +121,20 @@
       {
         "id": "handlebars",
         "extensions": [
-          ".hbs"
+          ".hbs",
+          ".handlebars"
         ]
       }
     ]
   },
   "devDependencies": {
-    "@types/node": "^24.0.3",
-    "@types/vscode": "^1.101.0",
+    "@types/node": "^22.15.29",
+    "@types/vscode": "1.101.0",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.9.1",
-    "typescript": "^5.8.3"
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@poliklot/prettier-plugin-handlebars": "^0.2.12"
+    "@poliklot/prettier-plugin-handlebars": "0.3.2"
   }
 }

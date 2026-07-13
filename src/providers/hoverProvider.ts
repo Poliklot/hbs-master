@@ -4,13 +4,16 @@ import { getConfig }  from '../utils/config';
 import { getDoc }     from '../utils/docs';
 import { HbsDocParser } from '../hbs-doc-parser';
 import { getHashPairAtPosition, getHashPairs, getPartialInvocationAtPosition } from '../utils/partials';
-import { normalizePartialPath, partialFilePath, partialsDir } from '../utils/paths';
+import { normalizePartialPath, partialFilePath, partialRootForFile } from '../utils/paths';
 
 function sourceLabel(componentPath: string, doc: vscode.TextDocument): string | undefined {
   const sourceFile = partialFilePath(componentPath, doc);
   if (!sourceFile) return undefined;
 
-  const relativeToPartials = path.relative(partialsDir(doc), sourceFile).replace(/\\/g, '/');
+  const sourceRoot = partialRootForFile(sourceFile, doc);
+  const relativeToPartials = sourceRoot
+    ? path.relative(sourceRoot, sourceFile).replace(/\\/g, '/')
+    : '';
   if (relativeToPartials && !relativeToPartials.startsWith('..') && !path.isAbsolute(relativeToPartials)) {
     return relativeToPartials;
   }
@@ -23,7 +26,7 @@ export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     vscode.languages.registerHoverProvider('handlebars', {
       provideHover(doc, pos) {
-        if (!getConfig().get('enableHoverDocs', true)) return;
+        if (!getConfig(doc).get('enableHoverDocs', true)) return;
 
         const invocation = getPartialInvocationAtPosition(doc, pos);
         if (!invocation?.component) return;

@@ -26,6 +26,11 @@ export function register(ctx: vscode.ExtensionContext) {
         /* ② Смотрим, не находимся ли мы всё ещё в строке пути */
         if (invocation.componentRange?.contains(pos)) return;           // всё ещё печатаем путь
 
+        const cursorOffset = doc.offsetAt(pos);
+        const hashPrefix = doc.getText().slice(invocation.hashStartOffset, cursorOffset);
+        if (hashPrefix && !/^\s/.test(hashPrefix)) return;
+        if (!hashPrefix) return;
+
         const info = getDoc(invocation.component, doc);
         if (!info) return;
 

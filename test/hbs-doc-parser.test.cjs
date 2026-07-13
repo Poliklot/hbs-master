@@ -123,6 +123,27 @@ test('parseHbsDoc preserves multiline object and object-array parameter shapes',
   assert.match(info.properties[0].type, /\}\[\]$/);
 });
 
+test('parseHbsDoc handles case-insensitive tags, inline comments, and consecutive aliases', () => {
+  const info = HbsDocParser.parseHbsDoc(`{{!--
+    @NAME Alert
+    @DESCRIPTION Status message.
+    @PARAMETERS
+    @DESCRIPTION Visual tone
+    tone?: "info" | "warning"; // optional tone
+    @TYPE Tone: "info" | "warning";
+    @TYPE Payload: {
+      value: string;
+    }
+  --}}`);
+
+  assert.equal(info.name, 'Alert');
+  assert.equal(info.description, 'Status message.');
+  assert.equal(info.properties[0].type, '"info" | "warning"');
+  assert.deepEqual(info.types.map(type => type.name), ['Tone', 'Payload']);
+  assert.equal(info.types[0].body, '"info" | "warning"');
+  assert.match(info.types[1].body, /value: string/);
+});
+
 test('createHoverInfo renders scalar props, nested object props and alias code blocks', () => {
   const info = HbsDocParser.parseHbsDoc(`{{!--
     @name Catalog
@@ -141,7 +162,7 @@ test('createHoverInfo renders scalar props, nested object props and alias code b
   --}}`);
 
   const hover = HbsDocParser.createHoverInfo(info);
-  assert.equal(hover.isTrusted, true);
+  assert.equal(hover.isTrusted, false);
   assert.match(hover.value, /### Catalog/);
   assert.match(hover.value, /Catalog component\./);
   assert.match(hover.value, /\*\*title\*\*: `string` _\(required\)_ — Heading text/);
@@ -149,6 +170,21 @@ test('createHoverInfo renders scalar props, nested object props and alias code b
   assert.match(hover.value, /- \*\*title\*\*: `string` — Card title/);
   assert.match(hover.value, /\*\*Type aliases:\*\*/);
   assert.match(hover.value, /```ts\nStringHTML: string/);
+});
+
+test('createHoverInfo preserves nested object-array shapes', () => {
+  const info = HbsDocParser.parseHbsDoc(`{{!--
+    @name Grid
+    @parameters
+    groups: {
+      cards: {
+        title: string;
+      }[]
+    };
+  --}}`);
+  const hover = HbsDocParser.createHoverInfo(info);
+
+  assert.match(hover.value, /\*\*cards\*\*: Object\[\]/);
 });
 
 test('parameter and unknown parameter hover render focused UX details', () => {
@@ -221,6 +257,26 @@ test('createCompletionItems builds snippets and markdown docs for params', () =>
   assert.match(items[1].documentation.value, /OK/);
 });
 
+test('createCompletionItems uses type-aware editable snippets', () => {
+  const items = HbsDocParser.createCompletionItems({
+    properties: [
+      { name: 'variant', type: "'primary' | 'secondary'", description: '', optional: true },
+      { name: 'count', type: 'number', description: '', optional: true },
+      { name: 'items', type: 'ItemData[]', description: '', optional: true },
+      { name: 'mixed', type: 'boolean | string', description: '', optional: true },
+    ],
+    types: [],
+  });
+
+  assert.deepEqual(items.map(item => item.insertText.value), [
+    'variant="${1|primary,secondary|}"',
+    'count=${1:0}',
+    'items=${1}',
+    'mixed=${1}',
+  ]);
+  assert.equal(items.every(item => item.detail.includes('HBSDoc parameter')), true);
+});
+
 test('component helpers understand multiline partials, quote styles and cursor boundaries', () => {
   const document = new TestTextDocument(`<main>
   {{> "components/card"
@@ -232,6 +288,7 @@ test('component helpers understand multiline partials, quote styles and cursor b
 
   assert.equal(HbsDocParser.isInsideComponentTag(document, positionOf(document, 'title="Hello"')), true);
   assert.equal(HbsDocParser.isInsideComponentTag(document, positionAfter(document, 'after close')), false);
+  assert.equal(HbsDocParser.isInsideComponentTag(document, positionAfter(document, '  }}')), false);
   assert.equal(HbsDocParser.getComponentNameAtPosition(document, positionOf(document, 'aria-label')), 'components/card');
   assert.equal(HbsDocParser.getCurrentParameter(document, positionOf(document, 'Card aria', 2)), 'aria-label');
 });
@@ -248,4 +305,75 @@ test('component helpers understand unquoted and block partials and parameter-nam
   assert.equal(HbsDocParser.isInsideComponentTag(document, positionOf(document, 'title')), true);
   assert.equal(HbsDocParser.getComponentNameAtPosition(document, positionOf(document, 'components/card')), 'components/card');
   assert.equal(HbsDocParser.getCurrentParameter(document, positionOf(document, 'title')), 'title');
+});
+
+test('partial scanner handles closing whitespace control without stalling', () => {
+  const document = new TestTextDocument(`{{~> components/button text="Save" disabled=true~}}`);
+  const partials = require('../dist/utils/partials.js');
+
+  const invocation = partials.findPartialInvocations(document)[0];
+  assert.ok(invocation);
+  assert.equal(invocation.component, 'components/button');
+  assert.equal(document.offsetAt(invocation.fullRange.end), document.getText().length);
+  assert.equal(document.getText().slice(invocation.hashEndOffset), '~}}');
+
+  const pairs = partials.getHashPairs(document, invocation);
+  assert.deepEqual(pairs.map(pair => pair.name), ['text', 'disabled']);
+  assert.equal(document.getText(pairs[1].valueRange), 'true');
+});
+
+test('partial scanner always advances over malformed hash input', () => {
+  const document = new TestTextDocument(`{{> components/button ~~ text="Save"}}`);
+  const partials = require('../dist/utils/partials.js');
+  const invocation = partials.findPartialInvocations(document)[0];
+
+  assert.ok(invocation);
+  assert.deepEqual(partials.getHashPairs(document, invocation).map(pair => pair.name), ['text']);
+});
+
+test('partial scanner indexes inline partial definitions with lexical scope', () => {
+  const document = new TestTextDocument(`{{#if enabled}}
+  {{#*inline "badge"}}Badge{{/inline}}
+  {{> badge}}
+{{/if}}`);
+  const partials = require('../dist/utils/partials.js');
+  const definitions = partials.findInlinePartialDefinitions(document);
+
+  assert.equal(definitions.length, 1);
+  assert.equal(definitions[0].name, 'badge');
+  assert.equal(document.getText(definitions[0].nameRange), 'badge');
+  assert.equal(
+    partials.getVisibleInlinePartialDefinition(document, 'badge', positionOf(document, '{{> badge', 4)).name,
+    'badge'
+  );
+});
+
+test('partial scanner survives a deterministic malformed-input corpus', () => {
+  const partials = require('../dist/utils/partials.js');
+  const alphabet = ` abcXYZ09_-~='"()[]{}|/@`;
+  let seed = 0x5eed1234;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed;
+  };
+
+  for (let iteration = 0; iteration < 400; iteration++) {
+    const length = random() % 80;
+    let hash = '';
+    for (let index = 0; index < length; index++) hash += alphabet[random() % alphabet.length];
+
+    const document = new TestTextDocument(`before {{> component ${hash}}} after`);
+    for (const invocation of partials.findPartialInvocations(document)) {
+      const start = document.offsetAt(invocation.fullRange.start);
+      const end = document.offsetAt(invocation.fullRange.end);
+      assert.ok(start >= 0 && end > start && end <= document.getText().length);
+
+      for (const pair of partials.getHashPairs(document, invocation)) {
+        const pairStart = document.offsetAt(pair.fullRange.start);
+        const pairEnd = document.offsetAt(pair.fullRange.end);
+        assert.ok(pairStart >= invocation.hashStartOffset);
+        assert.ok(pairEnd >= pairStart && pairEnd <= invocation.hashEndOffset);
+      }
+    }
+  }
 });

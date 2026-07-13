@@ -1,30 +1,24 @@
 # Release checklist
 
-## 1.0.0 readiness
+## 1.1.0 readiness
 
-Перед публикацией `1.0.0` проверьте:
+Before publishing `1.1.0`, verify:
 
-- [ ] `CHANGELOG.md` содержит секцию `1.0.0` с пользовательскими изменениями.
-- [ ] `package.json` version обновлён до `1.0.0`.
-- [ ] `README.md` описывает актуальный синтаксис partials, HBSDoc, diagnostics и настройки.
-- [ ] `HBSDoc-spec.md` соответствует фактическому parser behavior.
-- [ ] `npm ci` проходит на чистом checkout.
-- [ ] `npm test` проходит.
-- [ ] `npm run test:integration` проходит на smoke workspace.
-- [ ] `npx tsc --noEmit --noUnusedLocals --noUnusedParameters --noImplicitReturns` проходит.
-- [ ] `npm audit --audit-level=high` проходит.
-- [ ] `npm run package` собирает VSIX без `src/`, `test/`, `.vscode/`, локальных итераций и мусора.
-- [ ] VSIX установлен вручную в чистый VS Code Extension Development Host.
-- [ ] Проверены основные сценарии:
-  - [ ] path completion для partials;
-  - [ ] go to definition / document link;
-  - [ ] hover component docs;
-  - [ ] parameter completion без уже указанных props;
-  - [ ] signature help;
-  - [ ] parameter highlight;
-  - [ ] diagnostics: unknown partial / unknown prop / duplicate prop / missing required prop.
+- [x] `CHANGELOG.md` contains user-facing `1.1.0` release notes.
+- [x] `package.json` and `package-lock.json` use version `1.1.0`.
+- [x] `README.md` documents current partial syntax, HBSDoc behavior, diagnostics, settings, and limitations.
+- [x] `HBSDoc-spec.md` matches the parser behavior.
+- [x] `npm ci` succeeds from the lockfile.
+- [x] `npm test` succeeds.
+- [x] `npm run test:integration` succeeds in the smoke workspace.
+- [x] The strict TypeScript check succeeds.
+- [x] `npm audit --audit-level=high` reports no high-severity vulnerabilities.
+- [x] `npm run package` creates a VSIX without sources, tests, source maps, declarations, local files, or development-only CLI helpers.
+- [x] The VSIX installs into an isolated VS Code extensions directory.
+- [ ] GitHub Actions checks succeed on Linux, macOS, and Windows.
+- [ ] The final Marketplace version and GitHub Release are both `1.1.0`.
 
-## Команды
+## Local verification
 
 ```bash
 npm ci
@@ -35,16 +29,20 @@ npm audit --audit-level=high
 npm run package
 ```
 
-## Публикация
+Verify the main editor scenarios through the extension-host suite:
 
-```bash
-npm version 1.0.0 --no-git-tag-version
-npm run package
-npm run publish
-```
+- quoted, unquoted, multiline, nested, and `.handlebars` path completion;
+- file and inline-partial definition navigation;
+- component and parameter hover documentation;
+- parameter completion without duplicate suggestions;
+- Signature Help and parameter highlighting;
+- diagnostics for unknown partials, unknown parameters, duplicate parameters, and missing required parameters;
+- safe creation of a missing partial and caller diagnostic refresh.
 
-После публикации:
+## Publication order
 
-- [ ] Создать git tag `v1.0.0`.
-- [ ] Создать GitHub Release с VSIX artifact.
-- [ ] Проверить Marketplace page и install flow.
+1. Merge the fully green pull request into `master`.
+2. Build and inspect `hbs-master-1.1.0.vsix` from the merged commit.
+3. Publish version `1.1.0` to the VS Code Marketplace.
+4. Create tag `v1.1.0` and one GitHub Release containing the verified VSIX.
+5. Verify the Marketplace page and a clean install.

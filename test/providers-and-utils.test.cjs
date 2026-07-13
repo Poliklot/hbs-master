@@ -73,6 +73,33 @@ test('config and path utilities normalize partials path against workspace root',
   assert.equal(paths.partialsDir(), path.join(root, 'components'));
 });
 
+test('config and path utilities support multiple partial roots and .handlebars files', () => {
+  const { root } = makeWorkspace();
+  const secondary = path.join(root, 'shared', 'partials');
+  fs.mkdirSync(path.join(secondary, 'widgets'), { recursive: true });
+  fs.writeFileSync(path.join(secondary, 'widgets', 'badge.handlebars'), '<span>Badge</span>');
+  resetMock(root, { 'hbsMaster.partialsPaths': ['./src/partials/', 'shared/partials'] });
+
+  const config = fresh('../dist/utils/config.js');
+  const paths = fresh('../dist/utils/paths.js');
+
+  assert.deepEqual(config.getPartialsPaths(), ['src/partials', 'shared/partials']);
+  assert.deepEqual(paths.partialsDirs(), [path.join(root, 'src', 'partials'), secondary]);
+  assert.equal(paths.partialFilePath('widgets/badge'), path.join(secondary, 'widgets', 'badge.handlebars'));
+  assert.equal(paths.partialFilePath('../outside'), null);
+});
+
+test('config falls back safely when partial path settings have invalid runtime values', () => {
+  const { root } = makeWorkspace();
+  resetMock(root, {
+    'hbsMaster.partialsPaths': 'not-an-array',
+    'hbsMaster.partialsPath': 42,
+  });
+
+  const config = fresh('../dist/utils/config.js');
+  assert.deepEqual(config.getPartialsPaths(), ['src/partials']);
+});
+
 test('docs utility reads HBSDoc, caches it, and watcher invalidates cache', () => {
   const { root, partials } = makeWorkspace();
   resetMock(root);
@@ -93,6 +120,16 @@ test('docs utility reads HBSDoc, caches it, and watcher invalidates cache', () =
   assert.equal(docs.getDoc('components/button').name, 'Button');
   assert.equal(ctx.subscriptions.length, 2);
   vscode.__mock.state.watchers[0].fireChange(vscode.Uri.file(path.join(partials, 'components', 'button.hbs')));
+  assert.equal(docs.getDoc('components/button').name, 'Button changed');
+
+  const openDocument = new TestTextDocument(`{{!--
+    @name Button unsaved
+    @parameters
+    text: string;
+  --}}`, path.join(partials, 'components', 'button.hbs'));
+  vscode.__mock.setTextDocuments([openDocument]);
+  assert.equal(docs.getDoc('components/button').name, 'Button unsaved');
+  vscode.__mock.setTextDocuments([]);
   assert.equal(docs.getDoc('components/button').name, 'Button changed');
 
   fs.writeFileSync(path.join(partials, 'components', 'button.hbs'), `{{!--
@@ -160,6 +197,36 @@ test('definition provider resolves multiline, unquoted and block partial paths',
   const indexDoc = new TestTextDocument(`{{> "components/panel" title="A"}}`);
   const index = provider.provideDefinition(indexDoc, positionOf(indexDoc, 'components/panel'));
   assert.equal(index.uri.fsPath, path.join(partials, 'components', 'panel', 'index.hbs'));
+});
+
+test('definition and diagnostics understand scoped inline partials', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const definition = fresh('../dist/providers/definitionProvider.js');
+  definition.register({ subscriptions: [] });
+  const provider = vscode.__mock.lastRegistration('definition').provider;
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const document = new TestTextDocument(`{{#if show}}
+  {{#*inline "local"}}<b>Local</b>{{/inline}}
+  {{> local}}
+{{/if}}
+{{> local}}`, path.join(root, 'page.hbs'));
+  const invocationOffsets = [...document.getText().matchAll(/\{\{> local/g)].map(match => match.index + 4);
+
+  const inside = provider.provideDefinition(document, document.positionAt(invocationOffsets[0]));
+  assert.equal(inside.uri.toString(), document.uri.toString());
+  assert.equal(
+    document.getText(new vscode.Range(inside.range, inside.range.translate(0, 5))),
+    'local'
+  );
+
+  const outside = provider.provideDefinition(document, document.positionAt(invocationOffsets[1]));
+  assert.equal(outside, undefined);
+  assert.deepEqual(
+    diagnosticsProvider.collectDiagnostics(document).map(diagnostic => diagnostic.message),
+    ['Unknown partial: local']
+  );
 });
 
 test('link provider returns document links only for existing partial targets', () => {
@@ -233,6 +300,50 @@ test('file completion provider suggests folders and .hbs files, filters junk, an
   assert.equal(button.additionalTextEdits[0].newText, '');
 });
 
+test('file completion supports multiline and unquoted paths without escaping partial roots', () => {
+  const { root, partials } = makeWorkspace();
+  fs.writeFileSync(path.join(partials, 'components', 'badge.handlebars'), '<span>Badge</span>');
+  fs.writeFileSync(path.join(root, 'outside.hbs'), 'outside');
+  resetMock(root);
+
+  const completion = fresh('../dist/providers/completionProvider.js');
+  completion.register({ subscriptions: [] });
+  const provider = vscode.__mock.registrations('completion')[0].provider;
+
+  const multiline = new TestTextDocument(`{{>
+    "components/ba"
+  }}`);
+  const multilineItems = provider.provideCompletionItems(multiline, positionAfter(multiline, 'components/ba'));
+  assert.ok(multilineItems.some(item => item.label === 'badge.handlebars' && item.insertText === 'badge'));
+
+  const unquoted = new TestTextDocument(`{{> components/b}}`);
+  const unquotedItems = provider.provideCompletionItems(unquoted, positionAfter(unquoted, 'components/b'));
+  assert.ok(unquotedItems.some(item => item.label === 'button.hbs'));
+
+  const traversal = new TestTextDocument(`{{> "../../../out"}}`);
+  const traversalItems = provider.provideCompletionItems(traversal, positionAfter(traversal, '../../../out'));
+  assert.deepEqual(traversalItems, []);
+});
+
+test('path resolution and completion reject symlinks that escape partial roots', () => {
+  if (process.platform === 'win32') return;
+
+  const { root, partials } = makeWorkspace();
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hbs-master-outside-'));
+  fs.writeFileSync(path.join(outside, 'leak.hbs'), 'outside');
+  fs.symlinkSync(outside, path.join(partials, 'escape'), 'dir');
+  resetMock(root);
+
+  const paths = fresh('../dist/utils/paths.js');
+  assert.equal(paths.partialFilePath('escape/leak'), null);
+
+  const completion = fresh('../dist/providers/completionProvider.js');
+  completion.register({ subscriptions: [] });
+  const provider = vscode.__mock.registrations('completion')[0].provider;
+  const document = new TestTextDocument(`{{> "escape/le"}}`);
+  assert.deepEqual(provider.provideCompletionItems(document, positionAfter(document, 'escape/le')), []);
+});
+
 test('param completion provider filters HBSDoc props in multiline partial calls and skips path editing', () => {
   const { root } = makeWorkspace();
   resetMock(root);
@@ -244,6 +355,9 @@ test('param completion provider filters HBSDoc props in multiline partial calls 
 
   const pathDoc = new TestTextDocument(`{{> 'components/b'}}`);
   assert.equal(provider.provideCompletionItems(pathDoc, positionAfter(pathDoc, 'components/b')), undefined);
+
+  const noSeparatorDoc = new TestTextDocument(`{{> 'components/button'}}`);
+  assert.equal(provider.provideCompletionItems(noSeparatorDoc, positionAfter(noSeparatorDoc, "button'")), undefined);
 
   const document = new TestTextDocument(`{{> "components/button"
     dis
@@ -321,13 +435,17 @@ test('signature help provider exposes HBSDoc parameters and active parameter ind
   const document = new TestTextDocument(`{{> 'components/button' text="Save" disabled=true}}`);
 
   const help = provider.provideSignatureHelp(document, positionOf(document, 'true'));
-  assert.equal(help.signatures[0].label, 'Button');
+  assert.equal(
+    help.signatures[0].label,
+    'Button(text: string, disabled?: boolean, analytics-label?: string)'
+  );
   assert.deepEqual(help.signatures[0].parameters.map((p) => p.label), [
-    'text: string',
-    'disabled: boolean',
-    'analytics-label: string',
+    [7, 19],
+    [21, 39],
+    [41, 65],
   ]);
   assert.equal(help.activeParameter, 1);
+  assert.equal(help.signatures[0].activeParameter, 1);
 
   resetMock(root, { 'hbsMaster.enableSignatureHelp': false });
   assert.equal(provider.provideSignatureHelp(document, positionOf(document, 'true')), undefined);
@@ -380,6 +498,18 @@ test('diagnostics provider reports unknown partials and parameter issues', () =>
   assert.deepEqual(diagnosticsProvider.collectDiagnostics(document), []);
 });
 
+test('diagnostics ignore the Handlebars partial-block runtime partial', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const document = new TestTextDocument(`{{#> 'components/card' title="Card"}}
+  {{> @partial-block}}
+{{/components/card}}`);
+
+  assert.deepEqual(diagnosticsProvider.collectDiagnostics(document), []);
+});
+
 test('diagnostics provider supports severity config', () => {
   const { root } = makeWorkspace();
   resetMock(root, { 'hbsMaster.diagnosticsSeverity': 'error' });
@@ -391,6 +521,31 @@ test('diagnostics provider supports severity config', () => {
   assert.equal(diagnostics[0].severity, vscode.DiagnosticSeverity.Error);
   assert.equal(diagnostics[0].source, 'HBS Master');
   assert.equal(diagnostics[0].code, 'hbs-master.unknownPartial');
+});
+
+test('diagnostics ignore non-Handlebars documents and refresh consumers after partial changes', async () => {
+  const { root, partials } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const javascript = new TestTextDocument(`{{> missing}}`, path.join(root, 'script.js'), 'javascript');
+  assert.deepEqual(diagnosticsProvider.collectDiagnostics(javascript), []);
+
+  const consumer = new TestTextDocument(`{{> newly-created}}`, path.join(root, 'page.hbs'));
+  vscode.__mock.setTextDocuments([consumer, javascript]);
+  diagnosticsProvider.register({ subscriptions: [] });
+
+  assert.deepEqual(
+    vscode.__mock.state.diagnostics.at(-1).diagnostics.map(diagnostic => diagnostic.message),
+    ['Unknown partial: newly-created']
+  );
+
+  fs.writeFileSync(path.join(partials, 'newly-created.hbs'), '<p>Created</p>');
+  vscode.__mock.state.watchers.at(-1).fireCreate(vscode.Uri.file(path.join(partials, 'newly-created.hbs')));
+  await new Promise(resolve => setTimeout(resolve, 130));
+
+  assert.deepEqual(vscode.__mock.state.diagnostics.at(-1).diagnostics, []);
+  assert.equal(vscode.__mock.state.diagnostics.some(entry => entry.uri.fsPath.endsWith('script.js')), false);
 });
 
 test('code action provider creates quick fixes for diagnostics', () => {
@@ -413,11 +568,66 @@ test('code action provider creates quick fixes for diagnostics', () => {
   const removeActions = codeActions.createCodeActions(document, duplicate.range, [duplicate]);
   assert.equal(removeActions[0].title, 'Remove parameter "text"');
   assert.equal(removeActions[0].edit.operations[0].type, 'delete');
+  assert.equal(document.getText(removeActions[0].edit.operations[0].range), ' text="Again"');
 
   const missing = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.missingRequiredParameter');
   const addActions = codeActions.createCodeActions(document, missing.range, [missing]);
   assert.equal(addActions[0].title, 'Add required parameter "title"');
-  assert.equal(addActions[0].edit.operations[0].newText, ' title="string"');
+  assert.equal(addActions[0].edit.operations[0].newText, ' title=""');
+});
+
+test('code actions preserve whitespace control and format multiline edits', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const codeActions = fresh('../dist/providers/codeActionProvider.js');
+  const document = new TestTextDocument(`{{> 'components/card'
+  bogus=true
+~}}`);
+  const diagnostics = diagnosticsProvider.collectDiagnostics(document);
+
+  const unknown = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.unknownParameter');
+  const removal = codeActions.createCodeActions(document, unknown.range, [unknown])[0].edit.operations[0];
+  assert.equal(document.getText(removal.range), '  bogus=true\n');
+
+  const missing = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.missingRequiredParameter');
+  const insertion = codeActions.createCodeActions(document, missing.range, [missing])[0].edit.operations[0];
+  assert.equal(insertion.newText, '  title=""\n');
+  assert.equal(insertion.position.line, 2);
+  assert.equal(insertion.position.character, 0);
+});
+
+test('create-partial command respects workspace trust and never overwrites existing partials', async () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const codeActions = fresh('../dist/providers/codeActionProvider.js');
+  const source = new TestTextDocument(`{{> 'components/missing'}}`, path.join(root, 'page.hbs'));
+  const diagnostic = diagnosticsProvider.collectDiagnostics(source)[0];
+
+  vscode.__mock.setWorkspaceTrusted(false);
+  assert.deepEqual(codeActions.createCodeActions(source, diagnostic.range, [diagnostic]), []);
+
+  vscode.__mock.setWorkspaceTrusted(true);
+  codeActions.register({ subscriptions: [] });
+  const command = vscode.__mock.state.registeredCommands.find(item => item.command === 'hbsMaster.createPartial');
+  await command.cb(source.uri, 'components/button');
+
+  assert.equal(
+    vscode.__mock.state.commands.some(item => item.command === 'workspace.fs.writeFile'),
+    false
+  );
+  assert.equal(
+    vscode.__mock.state.commands.some(item => item.command === 'window.showTextDocument'),
+    true
+  );
+
+  await command.cb(source.uri, 'components/created-atomically');
+  const created = path.join(root, 'src', 'partials', 'components', 'created-atomically.hbs');
+  assert.equal(fs.existsSync(created), true);
+  assert.match(fs.readFileSync(created, 'utf8'), /@name created-atomically/);
 });
 
 test('extension activation wires every provider and document watcher', () => {
@@ -434,9 +644,9 @@ test('extension activation wires every provider and document watcher', () => {
   assert.equal(vscode.__mock.registrations('signature').length, 1);
   assert.equal(vscode.__mock.registrations('highlight').length, 1);
   assert.equal(vscode.__mock.registrations('codeAction').length, 1);
-  assert.equal(vscode.__mock.registrations('completion').length, 3);
+  assert.equal(vscode.__mock.registrations('completion').length, 2);
   assert.equal(vscode.__mock.state.registeredCommands.some((command) => command.command === 'hbsMaster.createPartial'), true);
-  assert.equal(vscode.__mock.state.watchers.length, 1);
+  assert.equal(vscode.__mock.state.watchers.length, 2);
   assert.equal(vscode.__mock.state.diagnostics.length, 0);
   assert.ok(vscode.__mock.state.logs.some((line) => line.includes('HBS Master activated!')));
 });

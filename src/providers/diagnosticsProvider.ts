@@ -1,9 +1,14 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { getConfig } from '../utils/config';
-import { getDoc } from '../utils/docs';
-import { partialFilePath } from '../utils/paths';
-import { findPartialInvocations, getHashPairs } from '../utils/partials';
+import { clearDocsCache, getDoc } from '../utils/docs';
+import { partialFilePath, partialRootForFile } from '../utils/paths';
+import {
+  findPartialInvocations,
+  getHashPairs,
+  getVisibleInlinePartialDefinition,
+  isRuntimePartial,
+} from '../utils/partials';
 
 export const DIAGNOSTIC_SOURCE = 'HBS Master';
 
@@ -14,8 +19,12 @@ export const DiagnosticCode = {
   MissingRequiredParameter: 'hbs-master.missingRequiredParameter',
 } as const;
 
-function configuredSeverity(): vscode.DiagnosticSeverity {
-  const severity = getConfig().get<string>('diagnosticsSeverity', 'warning');
+function isHandlebarsDocument(document: vscode.TextDocument): boolean {
+  return document.languageId === 'handlebars' && document.uri.scheme === 'file';
+}
+
+function configuredSeverity(document?: vscode.TextDocument): vscode.DiagnosticSeverity {
+  const severity = getConfig(document).get<string>('diagnosticsSeverity', 'warning');
 
   switch (severity) {
     case 'error':
@@ -43,16 +52,35 @@ function createDiagnostic(
 }
 
 export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[] {
-  if (!getConfig().get('enableDiagnostics', true)) return [];
+  if (!isHandlebarsDocument(doc)) return [];
+  if (!getConfig(doc).get('enableDiagnostics', true)) return [];
 
   const diagnostics: vscode.Diagnostic[] = [];
-  const severity = configuredSeverity();
+  const severity = configuredSeverity(doc);
+  const componentCache = new Map<string, {
+    file: string | null;
+    exists: boolean;
+    info: ReturnType<typeof getDoc>;
+  }>();
 
   for (const invocation of findPartialInvocations(doc)) {
     if (!invocation.component || !invocation.componentRange) continue;
+    if (isRuntimePartial(invocation.component)) continue;
+    if (getVisibleInlinePartialDefinition(doc, invocation.component, invocation.fullRange.start)) continue;
 
-    const file = partialFilePath(invocation.component, doc);
-    if (!file || !fs.existsSync(file)) {
+    let component = componentCache.get(invocation.component);
+    if (!component) {
+      const file = partialFilePath(invocation.component, doc);
+      const exists = !!file && fs.existsSync(file);
+      component = {
+        file,
+        exists,
+        info: exists ? getDoc(invocation.component, doc) : null,
+      };
+      componentCache.set(invocation.component, component);
+    }
+
+    if (!component.exists) {
       diagnostics.push(createDiagnostic(
         invocation.componentRange,
         `Unknown partial: ${invocation.component}`,
@@ -62,7 +90,7 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
       continue;
     }
 
-    const info = getDoc(invocation.component, doc);
+    const info = component.info;
     if (!info) continue;
 
     const properties = new Map(info.properties.map(property => [property.name, property]));
@@ -110,8 +138,13 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
 export function register(ctx: vscode.ExtensionContext) {
   const collection = vscode.languages.createDiagnosticCollection('hbs-master');
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let refreshAllTimer: ReturnType<typeof setTimeout> | undefined;
 
   const refresh = (doc: vscode.TextDocument) => {
+    if (!isHandlebarsDocument(doc)) {
+      collection.delete(doc.uri);
+      return;
+    }
     collection.set(doc.uri, collectDiagnostics(doc));
   };
 
@@ -132,14 +165,45 @@ export function register(ctx: vscode.ExtensionContext) {
     }
   };
 
-  ctx.subscriptions.push(collection);
+  const scheduleRefreshAll = () => {
+    if (refreshAllTimer) clearTimeout(refreshAllTimer);
+    refreshAllTimer = setTimeout(() => {
+      refreshAllTimer = undefined;
+      clearDocsCache();
+      refreshAll();
+    }, 100);
+  };
+
+  const partialWatcher = vscode.workspace.createFileSystemWatcher('**/*.{hbs,handlebars}');
+  partialWatcher.onDidChange(scheduleRefreshAll);
+  partialWatcher.onDidCreate(scheduleRefreshAll);
+  partialWatcher.onDidDelete(scheduleRefreshAll);
+
+  ctx.subscriptions.push(
+    collection,
+    partialWatcher,
+    {
+      dispose() {
+        debounceTimers.forEach(timer => clearTimeout(timer));
+        debounceTimers.clear();
+        if (refreshAllTimer) clearTimeout(refreshAllTimer);
+      },
+    }
+  );
 
   if (vscode.workspace.onDidOpenTextDocument) {
     ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh));
   }
 
   if (vscode.workspace.onDidChangeTextDocument) {
-    ctx.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => scheduleRefresh(event.document)));
+    ctx.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
+      if (partialRootForFile(event.document.uri.fsPath, event.document)) {
+        clearDocsCache();
+        scheduleRefreshAll();
+      } else {
+        scheduleRefresh(event.document);
+      }
+    }));
   }
 
   if (vscode.workspace.onDidSaveTextDocument) {
