@@ -11,9 +11,15 @@ node_modules/@poliklot/prettier-plugin-handlebars/README.md
 node_modules/@poliklot/prettier-plugin-handlebars/docs/**
 node_modules/@poliklot/prettier-plugin-handlebars/dist/cli.*
 node_modules/@poliklot/prettier-plugin-handlebars/dist/init.*
+node_modules/@poliklot/prettier-plugin-handlebars/dist/init-cli.*
 node_modules/@poliklot/prettier-plugin-handlebars/dist/types.*
+node_modules/@poliklot/prettier-plugin-handlebars/**/*.d.ts
+node_modules/template-format-core/CHANGELOG.md
+node_modules/template-format-core/README.md
+node_modules/template-format-core/**/*.d.ts
 src/**
 test/**
+dist/**/*.map
 *.vsix
 .DS_Store
 ITERATIONS.local.md
