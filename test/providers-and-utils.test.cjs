@@ -73,6 +73,22 @@ test('config and path utilities normalize partials path against workspace root',
   assert.equal(paths.partialsDir(), path.join(root, 'components'));
 });
 
+test('config and path utilities support multiple partial roots and .handlebars files', () => {
+  const { root } = makeWorkspace();
+  const secondary = path.join(root, 'shared', 'partials');
+  fs.mkdirSync(path.join(secondary, 'widgets'), { recursive: true });
+  fs.writeFileSync(path.join(secondary, 'widgets', 'badge.handlebars'), '<span>Badge</span>');
+  resetMock(root, { 'hbsMaster.partialsPaths': ['./src/partials/', 'shared/partials'] });
+
+  const config = fresh('../dist/utils/config.js');
+  const paths = fresh('../dist/utils/paths.js');
+
+  assert.deepEqual(config.getPartialsPaths(), ['src/partials', 'shared/partials']);
+  assert.deepEqual(paths.partialsDirs(), [path.join(root, 'src', 'partials'), secondary]);
+  assert.equal(paths.partialFilePath('widgets/badge'), path.join(secondary, 'widgets', 'badge.handlebars'));
+  assert.equal(paths.partialFilePath('../outside'), null);
+});
+
 test('docs utility reads HBSDoc, caches it, and watcher invalidates cache', () => {
   const { root, partials } = makeWorkspace();
   resetMock(root);
@@ -231,6 +247,31 @@ test('file completion provider suggests folders and .hbs files, filters junk, an
   const button = leadingSlashItems.find((item) => item.label === 'button.hbs');
   assert.ok(button.additionalTextEdits?.length > 0);
   assert.equal(button.additionalTextEdits[0].newText, '');
+});
+
+test('file completion supports multiline and unquoted paths without escaping partial roots', () => {
+  const { root, partials } = makeWorkspace();
+  fs.writeFileSync(path.join(partials, 'components', 'badge.handlebars'), '<span>Badge</span>');
+  fs.writeFileSync(path.join(root, 'outside.hbs'), 'outside');
+  resetMock(root);
+
+  const completion = fresh('../dist/providers/completionProvider.js');
+  completion.register({ subscriptions: [] });
+  const provider = vscode.__mock.registrations('completion')[0].provider;
+
+  const multiline = new TestTextDocument(`{{>
+    "components/ba"
+  }}`);
+  const multilineItems = provider.provideCompletionItems(multiline, positionAfter(multiline, 'components/ba'));
+  assert.ok(multilineItems.some(item => item.label === 'badge.handlebars' && item.insertText === 'badge'));
+
+  const unquoted = new TestTextDocument(`{{> components/b}}`);
+  const unquotedItems = provider.provideCompletionItems(unquoted, positionAfter(unquoted, 'components/b'));
+  assert.ok(unquotedItems.some(item => item.label === 'button.hbs'));
+
+  const traversal = new TestTextDocument(`{{> "../../../out"}}`);
+  const traversalItems = provider.provideCompletionItems(traversal, positionAfter(traversal, '../../../out'));
+  assert.deepEqual(traversalItems, []);
 });
 
 test('param completion provider filters HBSDoc props in multiline partial calls and skips path editing', () => {
@@ -434,7 +475,7 @@ test('extension activation wires every provider and document watcher', () => {
   assert.equal(vscode.__mock.registrations('signature').length, 1);
   assert.equal(vscode.__mock.registrations('highlight').length, 1);
   assert.equal(vscode.__mock.registrations('codeAction').length, 1);
-  assert.equal(vscode.__mock.registrations('completion').length, 3);
+  assert.equal(vscode.__mock.registrations('completion').length, 2);
   assert.equal(vscode.__mock.state.registeredCommands.some((command) => command.command === 'hbsMaster.createPartial'), true);
   assert.equal(vscode.__mock.state.watchers.length, 1);
   assert.equal(vscode.__mock.state.diagnostics.length, 0);

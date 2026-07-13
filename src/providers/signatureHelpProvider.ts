@@ -9,7 +9,7 @@ export function register(ctx: vscode.ExtensionContext) {
       'handlebars',
       {
         provideSignatureHelp(doc, pos) {
-          if (!getConfig().get('enableSignatureHelp', true)) return;
+          if (!getConfig(doc).get('enableSignatureHelp', true)) return;
 
           const invocation = getPartialInvocationAtPosition(doc, pos);
           if (!invocation?.component) return;

@@ -6,7 +6,7 @@ import { findPartialInvocations, getHashPairAtPosition, getHashPairs, getPartial
 export function register(ctx: vscode.ExtensionContext) {
   const provider = vscode.languages.registerDocumentHighlightProvider('handlebars', {
     provideDocumentHighlights(doc, pos) {
-      if (!getConfig().get('enableParameterHighlight', true)) return [];
+      if (!getConfig(doc).get('enableParameterHighlight', true)) return [];
 
       const invocation = getPartialInvocationAtPosition(doc, pos);
       const pair = getHashPairAtPosition(doc, pos, invocation);

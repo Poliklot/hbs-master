@@ -14,8 +14,8 @@ export const DiagnosticCode = {
   MissingRequiredParameter: 'hbs-master.missingRequiredParameter',
 } as const;
 
-function configuredSeverity(): vscode.DiagnosticSeverity {
-  const severity = getConfig().get<string>('diagnosticsSeverity', 'warning');
+function configuredSeverity(document?: vscode.TextDocument): vscode.DiagnosticSeverity {
+  const severity = getConfig(document).get<string>('diagnosticsSeverity', 'warning');
 
   switch (severity) {
     case 'error':
@@ -43,10 +43,10 @@ function createDiagnostic(
 }
 
 export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[] {
-  if (!getConfig().get('enableDiagnostics', true)) return [];
+  if (!getConfig(doc).get('enableDiagnostics', true)) return [];
 
   const diagnostics: vscode.Diagnostic[] = [];
-  const severity = configuredSeverity();
+  const severity = configuredSeverity(doc);
 
   for (const invocation of findPartialInvocations(doc)) {
     if (!invocation.component || !invocation.componentRange) continue;

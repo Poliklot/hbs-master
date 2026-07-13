@@ -1,124 +1,195 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { partialsDir } from '../utils/paths';
+import {
+  isSafePathInside,
+  PARTIAL_FILE_EXTENSIONS,
+  partialsDirs,
+  workspaceRoot,
+} from '../utils/paths';
 
-/* -------------------------------------------------------------- */
-/*                        FILE + PARAM COMPLETION                 */
-/* -------------------------------------------------------------- */
-
-function getFileCompletions(
-  rawPath: string,
-  position: vscode.Position,
-  document: vscode.TextDocument
-): vscode.CompletionItem[] {
-  /* ────────── вычисляем директорию поиска, как было ────────── */
-  const hasLeadingSlash = rawPath.startsWith('/');
-  const current = rawPath.replace(/^\.?\//, '');
-
-  let searchDir: string;
-  let filter = '';
-  const rootPartialsDir = partialsDir(document);
-
-  if (current.endsWith('/')) {
-    searchDir = path.join(rootPartialsDir, current.slice(0, -1));
-  } else if (current.includes('/')) {
-    searchDir = path.join(rootPartialsDir, path.dirname(current));
-    filter = path.basename(current);
-  } else {
-    searchDir = rootPartialsDir;
-    filter = current;
-  }
-
-  if (!fs.existsSync(searchDir)) return [];
-
-  const fileItems = fs.readdirSync(searchDir)
-    .filter(name =>
-      !name.startsWith('.') &&
-      (filter === '' || name.toLowerCase().startsWith(filter.toLowerCase())) &&
-      (fs.statSync(path.join(searchDir, name)).isDirectory() || name.endsWith('.hbs')) // ← .hbs only
-    )
-    .map(name => {
-      const full  = path.join(searchDir, name);
-      const isDir = fs.statSync(full).isDirectory();
-
-      const item = new vscode.CompletionItem(
-        name,
-        isDir ? vscode.CompletionItemKind.Folder : vscode.CompletionItemKind.File
-      );
-
-      item.insertText = isDir ? `${name}/` : name.replace(/\.hbs$/, '');
-
-      /* удаляем лишний '/' в начале */
-      if (hasLeadingSlash) {
-        const quoteStart = position.character - rawPath.length - 1;
-        const slashPos   = quoteStart + 1;
-        item.additionalTextEdits = [
-          vscode.TextEdit.delete(new vscode.Range(position.line, slashPos, position.line, slashPos + 1))
-        ];
-      }
-
-      if (isDir) {
-        item.command = { command: 'editor.action.triggerSuggest', title: '' };
-      }
-      return item;
-    });
-
-  return fileItems;
+interface PathCompletionContext {
+  rawPath: string;
+  directory: string;
+  filter: string;
+  replacementRange: vscode.Range;
+  leadingSlashRange?: vscode.Range;
 }
 
-/* -------------------------------------------------------------- */
-/*                       ʀᴇɢɪsᴛʀᴀᴛɪᴏɴ                          */
-/* -------------------------------------------------------------- */
+function hasUnescapedQuote(value: string, quote: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] === '\\') {
+      index++;
+      continue;
+    }
+    if (value[index] === quote) return true;
+  }
+  return false;
+}
+
+export function getPathCompletionContext(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): PathCompletionContext | null {
+  const text = document.getText();
+  const cursorOffset = document.offsetAt(position);
+  const openOffset = text.lastIndexOf('{{', cursorOffset);
+  if (openOffset < 0) return null;
+
+  const beforeCursor = text.slice(openOffset, cursorOffset);
+  if (beforeCursor.includes('}}')) return null;
+
+  const opener = beforeCursor.match(/^\{\{~?\s*#?>\s*/);
+  if (!opener) return null;
+
+  let pathStartOffset = openOffset + opener[0].length;
+  const quote = text[pathStartOffset] === '"' || text[pathStartOffset] === "'"
+    ? text[pathStartOffset]
+    : null;
+
+  if (quote) pathStartOffset++;
+
+  const rawPath = text.slice(pathStartOffset, cursorOffset);
+  if (quote ? hasUnescapedQuote(rawPath, quote) : /\s/.test(rawPath)) return null;
+  if (!quote && rawPath.startsWith('(')) return null;
+
+  const normalizedSeparators = rawPath.replace(/\\/g, '/');
+  const separatorIndex = normalizedSeparators.lastIndexOf('/');
+  const directory = separatorIndex >= 0 ? normalizedSeparators.slice(0, separatorIndex + 1) : '';
+  const filter = separatorIndex >= 0 ? rawPath.slice(separatorIndex + 1) : rawPath;
+  const replacementStartOffset = cursorOffset - filter.length;
+  const leadingSlashRange = rawPath.startsWith('/')
+    ? new vscode.Range(document.positionAt(pathStartOffset), document.positionAt(pathStartOffset + 1))
+    : undefined;
+
+  return {
+    rawPath,
+    directory,
+    filter,
+    replacementRange: new vscode.Range(document.positionAt(replacementStartOffset), position),
+    leadingSlashRange,
+  };
+}
+
+function normalizedDirectory(directory: string): string | null {
+  const withoutLeadingSlash = directory.replace(/^\/+/, '');
+  const parts = withoutLeadingSlash.split('/').filter(part => part && part !== '.');
+  if (parts.some(part => part === '..')) return null;
+  return parts.join(path.sep);
+}
+
+function extensionFor(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  return PARTIAL_FILE_EXTENSIONS.find(extension => lower.endsWith(extension));
+}
+
+function getFileCompletions(
+  context: PathCompletionContext,
+  document: vscode.TextDocument
+): vscode.CompletionItem[] {
+  const directory = normalizedDirectory(context.directory);
+  if (directory === null) return [];
+
+  const items = new Map<string, vscode.CompletionItem>();
+
+  for (const root of partialsDirs(document)) {
+    const searchDir = path.resolve(root, directory);
+    if (!isSafePathInside(root, searchDir) || !fs.existsSync(searchDir)) continue;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(searchDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || !entry.name.toLowerCase().startsWith(context.filter.toLowerCase())) continue;
+
+      const fullPath = path.join(searchDir, entry.name);
+      if (!isSafePathInside(root, fullPath)) continue;
+
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const stat = fs.statSync(fullPath);
+          isDirectory = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          continue;
+        }
+      }
+
+      const extension = isFile ? extensionFor(entry.name) : undefined;
+      if (!isDirectory && !extension) continue;
+      if (items.has(entry.name)) continue;
+
+      const item = new vscode.CompletionItem(
+        entry.name,
+        isDirectory ? vscode.CompletionItemKind.Folder : vscode.CompletionItemKind.File
+      );
+      item.insertText = isDirectory ? `${entry.name}/` : entry.name.slice(0, -extension!.length);
+      item.range = context.replacementRange;
+      item.sortText = `${isDirectory ? '0' : '1'}-${entry.name.toLowerCase()}`;
+
+      const relativeRoot = path.relative(workspaceRoot(document), root).replace(/\\/g, '/') || '.';
+      item.detail = `HBS partial · ${relativeRoot}`;
+
+      if (context.leadingSlashRange) {
+        item.additionalTextEdits = [vscode.TextEdit.delete(context.leadingSlashRange)];
+      }
+
+      if (isDirectory) {
+        item.command = { command: 'editor.action.triggerSuggest', title: 'Continue partial path completion' };
+      }
+
+      items.set(entry.name, item);
+    }
+  }
+
+  return [...items.values()];
+}
 
 export function register(ctx: vscode.ExtensionContext) {
-  let insidePartial = false;
-
-  const mainProvider = vscode.languages.registerCompletionItemProvider(
+  const provider = vscode.languages.registerCompletionItemProvider(
     'handlebars',
     {
       provideCompletionItems(document, position) {
-        const linePrefix = document.lineAt(position).text.slice(0, position.character);
-        const m = linePrefix.match(/\{\{~?\s*#?>\s*['"]([^'"]*?)$/);
-        if (!m) { insidePartial = false; return; }
-
-        const quotePos  = linePrefix.lastIndexOf(m[1]) - 1;
-        const quoteChar = linePrefix[quotePos];
-        const suffix    = document.lineAt(position).text.slice(position.character);
-
-        if (!suffix.startsWith(quoteChar)) { insidePartial = false; return; }
-
-        insidePartial = true;
-        return getFileCompletions(m[1], position, document);
-      }
+        const completionContext = getPathCompletionContext(document, position);
+        if (!completionContext) return undefined;
+        return getFileCompletions(completionContext, document);
+      },
     },
-    "'", '"', '/', '-', '_', '.', ...'abcdefghijklmnopqrstuvwxyz', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'0123456789'
+    "'", '"', '/', '\\', '-', '_', '.',
+    ...'abcdefghijklmnopqrstuvwxyz',
+    ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    ...'0123456789'
   );
 
-  const filterProvider = vscode.languages.registerCompletionItemProvider(
-    'handlebars',
-    { provideCompletionItems: () => (insidePartial ? [] : undefined) },
-    "'", '"', '/'
-  );
+  const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+  const cursorChange = vscode.window.onDidChangeTextEditorSelection(event => {
+    const position = event.selections[0]?.active;
+    if (!position) return;
 
-  /* авто-suggest при навигации курсором */
-  const cursorChange = vscode.window.onDidChangeTextEditorSelection(e => {
-    if (!e.selections.length) return;
+    const document = event.textEditor.document;
+    const offset = document.offsetAt(position);
+    const text = document.getText();
+    const previous = text[offset - 1];
+    const next = text[offset];
+    if (!((previous === "'" && next === "'") || (previous === '"' && next === '"'))) return;
+    if (!getPathCompletionContext(document, position)) return;
 
-    const doc = e.textEditor.document;
-    const pos = e.selections[0].active;
-
-    const prev = doc.getText(new vscode.Range(pos.translate(0, -1), pos));
-    const next = doc.getText(new vscode.Range(pos, pos.translate(0, 1)));
-
-    if ((prev === "'" && next === "'") || (prev === '"' && next === '"')) {
-      const prefix = doc.getText(new vscode.Range(new vscode.Position(pos.line, 0), pos.translate(0, -1))).trimEnd();
-      if (prefix.endsWith('{{>')) {
-        insidePartial = true;
-        setTimeout(() => vscode.commands.executeCommand('editor.action.triggerSuggest'), 50);
-      }
-    }
+    const timer = setTimeout(() => {
+      pendingTimers.delete(timer);
+      void vscode.commands.executeCommand('editor.action.triggerSuggest');
+    }, 50);
+    pendingTimers.add(timer);
   });
 
-  ctx.subscriptions.push(mainProvider, filterProvider, cursorChange);
+  ctx.subscriptions.push(
+    provider,
+    cursorChange,
+    { dispose: () => pendingTimers.forEach(timer => clearTimeout(timer)) }
+  );
 }

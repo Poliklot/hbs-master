@@ -1,12 +1,12 @@
 # HBS Master
 
-VS Code tooling for productive work with classic Handlebars (`.hbs`) templates.
+VS Code tooling for productive work with classic Handlebars (`.hbs` and `.handlebars`) templates.
 
 HBS Master helps you navigate partials, document component APIs with HBSDoc, autocomplete component parameters, and catch common template mistakes before runtime.
 
 ## Features
 
-- **Partial path completion**: smart path suggestions for `{{> '...'}}`, including nested folders.
+- **Partial path completion**: smart path suggestions for quoted, unquoted, multiline, and nested partial paths.
 - **Go to partial definition**: jump to partial files with Ctrl/Cmd+Click or F12.
 - **Parameter completion**: autocomplete documented component parameters from HBSDoc.
 - **AST-backed partial discovery**: Handlebars parsing via `@poliklot/prettier-plugin-handlebars` with precise ranges for paths and parameters.
@@ -115,7 +115,8 @@ See [HBSDoc-spec.md](./HBSDoc-spec.md) for the full specification.
 
 ## Settings
 
-- `hbsMaster.partialsPath`: partials directory relative to the workspace root. Default: `src/partials`.
+- `hbsMaster.partialsPath`: partials directory relative to the current workspace folder. Default: `src/partials`.
+- `hbsMaster.partialsPaths`: ordered list of partials directories. When set, it takes precedence over `partialsPath`; the first directory is used by the create-partial Quick Fix.
 - `hbsMaster.enableHoverDocs`: enable hover documentation. Default: `true`.
 - `hbsMaster.enableSignatureHelp`: enable signature help. Default: `true`.
 - `hbsMaster.enableParameterHighlight`: enable parameter highlighting. Default: `true`.
@@ -126,7 +127,7 @@ Example workspace settings:
 
 ```json
 {
-  "hbsMaster.partialsPath": "components",
+  "hbsMaster.partialsPaths": ["src/partials", "shared/components"],
   "hbsMaster.diagnosticsSeverity": "warning"
 }
 ```
