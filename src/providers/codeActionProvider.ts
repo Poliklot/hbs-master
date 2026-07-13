@@ -193,8 +193,12 @@ export function register(ctx: vscode.ExtensionContext) {
 
       const uri = vscode.Uri.file(file);
       if (!fs.existsSync(file)) {
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(file)));
-        await vscode.workspace.fs.writeFile(uri, partialSkeleton(component));
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        try {
+          await fs.promises.writeFile(file, partialSkeleton(component), { flag: 'wx' });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
       }
 
       const doc = await vscode.workspace.openTextDocument(uri);

@@ -330,3 +330,50 @@ test('partial scanner always advances over malformed hash input', () => {
   assert.ok(invocation);
   assert.deepEqual(partials.getHashPairs(document, invocation).map(pair => pair.name), ['text']);
 });
+
+test('partial scanner indexes inline partial definitions with lexical scope', () => {
+  const document = new TestTextDocument(`{{#if enabled}}
+  {{#*inline "badge"}}Badge{{/inline}}
+  {{> badge}}
+{{/if}}`);
+  const partials = require('../dist/utils/partials.js');
+  const definitions = partials.findInlinePartialDefinitions(document);
+
+  assert.equal(definitions.length, 1);
+  assert.equal(definitions[0].name, 'badge');
+  assert.equal(document.getText(definitions[0].nameRange), 'badge');
+  assert.equal(
+    partials.getVisibleInlinePartialDefinition(document, 'badge', positionOf(document, '{{> badge', 4)).name,
+    'badge'
+  );
+});
+
+test('partial scanner survives a deterministic malformed-input corpus', () => {
+  const partials = require('../dist/utils/partials.js');
+  const alphabet = ` abcXYZ09_-~='"()[]{}|/@`;
+  let seed = 0x5eed1234;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed;
+  };
+
+  for (let iteration = 0; iteration < 400; iteration++) {
+    const length = random() % 80;
+    let hash = '';
+    for (let index = 0; index < length; index++) hash += alphabet[random() % alphabet.length];
+
+    const document = new TestTextDocument(`before {{> component ${hash}}} after`);
+    for (const invocation of partials.findPartialInvocations(document)) {
+      const start = document.offsetAt(invocation.fullRange.start);
+      const end = document.offsetAt(invocation.fullRange.end);
+      assert.ok(start >= 0 && end > start && end <= document.getText().length);
+
+      for (const pair of partials.getHashPairs(document, invocation)) {
+        const pairStart = document.offsetAt(pair.fullRange.start);
+        const pairEnd = document.offsetAt(pair.fullRange.end);
+        assert.ok(pairStart >= invocation.hashStartOffset);
+        assert.ok(pairEnd >= pairStart && pairEnd <= invocation.hashEndOffset);
+      }
+    }
+  }
+});

@@ -57,6 +57,15 @@ Dynamic partials cannot be resolved statically and are intentionally ignored:
 {{> (lookup . "partialName")}}
 ```
 
+Scoped inline partial definitions are also understood by Go to Definition and diagnostics:
+
+```handlebars
+{{#*inline "local-label"}}<span>{{text}}</span>{{/inline}}
+{{> local-label text="Ready"}}
+```
+
+The Handlebars runtime partial `@partial-block` is recognized and is not reported as a missing file.
+
 ### Hover behavior
 
 - Hover the partial path (`components/button`) to see the component description, all documented parameters, missing required parameters in the current call, and the source file.
@@ -177,6 +186,7 @@ npm run package
 ## Known limitations
 
 - Dynamic partials such as `{{> (lookup . "partialName")}}` are not resolved because the target file name is only known at runtime.
+- Inline partials support scoped navigation and missing-partial diagnostics, but file-based HBSDoc parameter intelligence applies only to partial files.
 - Diagnostics and completions are based on HBSDoc comments. Undocumented partials can still be navigated to, but parameter intelligence is unavailable.
 - HBS Master targets classic Handlebars templates and static partial calls.
 

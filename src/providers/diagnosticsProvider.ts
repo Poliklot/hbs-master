@@ -3,7 +3,12 @@ import * as vscode from 'vscode';
 import { getConfig } from '../utils/config';
 import { clearDocsCache, getDoc } from '../utils/docs';
 import { partialFilePath, partialRootForFile } from '../utils/paths';
-import { findPartialInvocations, getHashPairs } from '../utils/partials';
+import {
+  findPartialInvocations,
+  getHashPairs,
+  getVisibleInlinePartialDefinition,
+  isRuntimePartial,
+} from '../utils/partials';
 
 export const DIAGNOSTIC_SOURCE = 'HBS Master';
 
@@ -55,6 +60,8 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
 
   for (const invocation of findPartialInvocations(doc)) {
     if (!invocation.component || !invocation.componentRange) continue;
+    if (isRuntimePartial(invocation.component)) continue;
+    if (getVisibleInlinePartialDefinition(doc, invocation.component, invocation.fullRange.start)) continue;
 
     const file = partialFilePath(invocation.component, doc);
     if (!file || !fs.existsSync(file)) {

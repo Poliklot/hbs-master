@@ -188,6 +188,36 @@ test('definition provider resolves multiline, unquoted and block partial paths',
   assert.equal(index.uri.fsPath, path.join(partials, 'components', 'panel', 'index.hbs'));
 });
 
+test('definition and diagnostics understand scoped inline partials', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const definition = fresh('../dist/providers/definitionProvider.js');
+  definition.register({ subscriptions: [] });
+  const provider = vscode.__mock.lastRegistration('definition').provider;
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const document = new TestTextDocument(`{{#if show}}
+  {{#*inline "local"}}<b>Local</b>{{/inline}}
+  {{> local}}
+{{/if}}
+{{> local}}`, path.join(root, 'page.hbs'));
+  const invocationOffsets = [...document.getText().matchAll(/\{\{> local/g)].map(match => match.index + 4);
+
+  const inside = provider.provideDefinition(document, document.positionAt(invocationOffsets[0]));
+  assert.equal(inside.uri.toString(), document.uri.toString());
+  assert.equal(
+    document.getText(new vscode.Range(inside.range, inside.range.translate(0, 5))),
+    'local'
+  );
+
+  const outside = provider.provideDefinition(document, document.positionAt(invocationOffsets[1]));
+  assert.equal(outside, undefined);
+  assert.deepEqual(
+    diagnosticsProvider.collectDiagnostics(document).map(diagnostic => diagnostic.message),
+    ['Unknown partial: local']
+  );
+});
+
 test('link provider returns document links only for existing partial targets', () => {
   const { root, partials } = makeWorkspace();
   resetMock(root);
@@ -438,6 +468,18 @@ test('diagnostics provider reports unknown partials and parameter issues', () =>
   assert.deepEqual(diagnosticsProvider.collectDiagnostics(document), []);
 });
 
+test('diagnostics ignore the Handlebars partial-block runtime partial', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const document = new TestTextDocument(`{{#> 'components/card' title="Card"}}
+  {{> @partial-block}}
+{{/components/card}}`);
+
+  assert.deepEqual(diagnosticsProvider.collectDiagnostics(document), []);
+});
+
 test('diagnostics provider supports severity config', () => {
   const { root } = makeWorkspace();
   resetMock(root, { 'hbsMaster.diagnosticsSeverity': 'error' });
@@ -551,6 +593,11 @@ test('create-partial command respects workspace trust and never overwrites exist
     vscode.__mock.state.commands.some(item => item.command === 'window.showTextDocument'),
     true
   );
+
+  await command.cb(source.uri, 'components/created-atomically');
+  const created = path.join(root, 'src', 'partials', 'components', 'created-atomically.hbs');
+  assert.equal(fs.existsSync(created), true);
+  assert.match(fs.readFileSync(created, 'utf8'), /@name created-atomically/);
 });
 
 test('extension activation wires every provider and document watcher', () => {
