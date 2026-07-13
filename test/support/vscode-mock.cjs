@@ -21,6 +21,7 @@ const state = {
   commands: [],
   registeredCommands: [],
   logs: [],
+  workspaceTrusted: true,
 };
 
 class Position {
@@ -296,6 +297,9 @@ const vscode = {
   CodeAction,
   CodeActionKind,
   workspace: {
+    get isTrusted() {
+      return state.workspaceTrusted;
+    },
     get workspaceFolders() {
       return state.workspaceRoot ? [{ uri: Uri.file(state.workspaceRoot) }] : undefined;
     },
@@ -444,8 +448,10 @@ const vscode = {
       state.commands = [];
       state.registeredCommands = [];
       state.logs = [];
+      state.workspaceTrusted = true;
     },
     setWorkspaceRoot(root) { state.workspaceRoot = root; },
+    setWorkspaceTrusted(trusted) { state.workspaceTrusted = trusted; },
     setTextDocuments(docs) { state.textDocuments = [...docs]; },
     setConfig(config) { state.config = { ...config }; },
     fireConfigurationChange(section = 'hbsMaster') {

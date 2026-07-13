@@ -288,6 +288,7 @@ test('component helpers understand multiline partials, quote styles and cursor b
 
   assert.equal(HbsDocParser.isInsideComponentTag(document, positionOf(document, 'title="Hello"')), true);
   assert.equal(HbsDocParser.isInsideComponentTag(document, positionAfter(document, 'after close')), false);
+  assert.equal(HbsDocParser.isInsideComponentTag(document, positionAfter(document, '  }}')), false);
   assert.equal(HbsDocParser.getComponentNameAtPosition(document, positionOf(document, 'aria-label')), 'components/card');
   assert.equal(HbsDocParser.getCurrentParameter(document, positionOf(document, 'Card aria', 2)), 'aria-label');
 });

@@ -3,7 +3,12 @@ import * as vscode from 'vscode';
 import { HbsDocParser, HbsDocInfo } from '../hbs-doc-parser';
 import { partialFilePath } from './paths';
 
-const cache = new Map<string, HbsDocInfo>();
+interface DocsCacheEntry {
+  info: HbsDocInfo;
+  openDocumentText?: string;
+}
+
+const cache = new Map<string, DocsCacheEntry>();
 
 export function clearDocsCache() {
   cache.clear();
@@ -14,7 +19,19 @@ export function getDoc(componentPath: string, document?: vscode.TextDocument): H
   if (!file || !fs.existsSync(file)) return null;
 
   const key = file;
-  if (cache.has(key)) return cache.get(key)!;
+  const openDocument = (vscode.workspace.textDocuments ?? []).find(document => document.uri.fsPath === file);
+  if (openDocument) {
+    const text = openDocument.getText();
+    const cached = cache.get(key);
+    if (cached?.openDocumentText === text) return cached.info;
+
+    const parsed = HbsDocParser.parseHbsDoc(text);
+    if (parsed) cache.set(key, { info: parsed, openDocumentText: text });
+    return parsed;
+  }
+
+  const cached = cache.get(key);
+  if (cached && cached.openDocumentText === undefined) return cached.info;
 
   let parsed: HbsDocInfo | null;
   try {
@@ -22,7 +39,7 @@ export function getDoc(componentPath: string, document?: vscode.TextDocument): H
   } catch {
     return null;
   }
-  if (parsed) cache.set(key, parsed);
+  if (parsed) cache.set(key, { info: parsed });
   return parsed;
 }
 

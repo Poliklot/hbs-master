@@ -301,7 +301,12 @@ export function getPartialInvocationAtPosition(
   document: vscode.TextDocument,
   position: vscode.Position
 ): PartialInvocation | undefined {
-  return findPartialInvocations(document).find(invocation => invocation.fullRange.contains(position));
+  const offset = document.offsetAt(position);
+  return findPartialInvocations(document).find(invocation => {
+    const start = document.offsetAt(invocation.fullRange.start);
+    const end = document.offsetAt(invocation.fullRange.end);
+    return offset >= start && offset < end;
+  });
 }
 
 export function getHashPairs(

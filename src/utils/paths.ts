@@ -6,6 +6,8 @@ import { getPartialsPaths } from './config';
 export const PARTIAL_FILE_EXTENSIONS = ['.hbs', '.handlebars'] as const;
 
 export function workspaceRoot(document?: vscode.TextDocument): string {
+  if (document && document.uri.scheme !== 'file') return '';
+
   const folder = document && vscode.workspace.getWorkspaceFolder
     ? vscode.workspace.getWorkspaceFolder(document.uri)
     : undefined;

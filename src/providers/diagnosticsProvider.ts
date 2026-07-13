@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { getConfig } from '../utils/config';
 import { clearDocsCache, getDoc } from '../utils/docs';
-import { partialFilePath } from '../utils/paths';
+import { partialFilePath, partialRootForFile } from '../utils/paths';
 import { findPartialInvocations, getHashPairs } from '../utils/partials';
 
 export const DIAGNOSTIC_SOURCE = 'HBS Master';
@@ -173,7 +173,14 @@ export function register(ctx: vscode.ExtensionContext) {
   }
 
   if (vscode.workspace.onDidChangeTextDocument) {
-    ctx.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => scheduleRefresh(event.document)));
+    ctx.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
+      if (partialRootForFile(event.document.uri.fsPath, event.document)) {
+        clearDocsCache();
+        scheduleRefreshAll();
+      } else {
+        scheduleRefresh(event.document);
+      }
+    }));
   }
 
   if (vscode.workspace.onDidSaveTextDocument) {

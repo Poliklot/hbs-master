@@ -111,6 +111,16 @@ test('docs utility reads HBSDoc, caches it, and watcher invalidates cache', () =
   vscode.__mock.state.watchers[0].fireChange(vscode.Uri.file(path.join(partials, 'components', 'button.hbs')));
   assert.equal(docs.getDoc('components/button').name, 'Button changed');
 
+  const openDocument = new TestTextDocument(`{{!--
+    @name Button unsaved
+    @parameters
+    text: string;
+  --}}`, path.join(partials, 'components', 'button.hbs'));
+  vscode.__mock.setTextDocuments([openDocument]);
+  assert.equal(docs.getDoc('components/button').name, 'Button unsaved');
+  vscode.__mock.setTextDocuments([]);
+  assert.equal(docs.getDoc('components/button').name, 'Button changed');
+
   fs.writeFileSync(path.join(partials, 'components', 'button.hbs'), `{{!--
     @name Button changed by config
     @parameters
@@ -285,6 +295,9 @@ test('param completion provider filters HBSDoc props in multiline partial calls 
 
   const pathDoc = new TestTextDocument(`{{> 'components/b'}}`);
   assert.equal(provider.provideCompletionItems(pathDoc, positionAfter(pathDoc, 'components/b')), undefined);
+
+  const noSeparatorDoc = new TestTextDocument(`{{> 'components/button'}}`);
+  assert.equal(provider.provideCompletionItems(noSeparatorDoc, positionAfter(noSeparatorDoc, "button'")), undefined);
 
   const document = new TestTextDocument(`{{> "components/button"
     dis
@@ -511,6 +524,33 @@ test('code actions preserve whitespace control and format multiline edits', () =
   assert.equal(insertion.newText, '  title=""\n');
   assert.equal(insertion.position.line, 2);
   assert.equal(insertion.position.character, 0);
+});
+
+test('create-partial command respects workspace trust and never overwrites existing partials', async () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const codeActions = fresh('../dist/providers/codeActionProvider.js');
+  const source = new TestTextDocument(`{{> 'components/missing'}}`, path.join(root, 'page.hbs'));
+  const diagnostic = diagnosticsProvider.collectDiagnostics(source)[0];
+
+  vscode.__mock.setWorkspaceTrusted(false);
+  assert.deepEqual(codeActions.createCodeActions(source, diagnostic.range, [diagnostic]), []);
+
+  vscode.__mock.setWorkspaceTrusted(true);
+  codeActions.register({ subscriptions: [] });
+  const command = vscode.__mock.state.registeredCommands.find(item => item.command === 'hbsMaster.createPartial');
+  await command.cb(source.uri, 'components/button');
+
+  assert.equal(
+    vscode.__mock.state.commands.some(item => item.command === 'workspace.fs.writeFile'),
+    false
+  );
+  assert.equal(
+    vscode.__mock.state.commands.some(item => item.command === 'window.showTextDocument'),
+    true
+  );
 });
 
 test('extension activation wires every provider and document watcher', () => {
