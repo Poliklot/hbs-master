@@ -135,6 +135,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@poliklot/prettier-plugin-handlebars": "0.3.1"
+    "@poliklot/prettier-plugin-handlebars": "0.3.2"
   }
 }
