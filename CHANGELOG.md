@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.1.0] - 2026-07-13
+
+### Added
+- Added ordered multi-root partial lookup through `hbsMaster.partialsPaths`, with resource-scoped configuration for multi-folder workspaces.
+- Added first-class `.handlebars` support alongside `.hbs` for completion, navigation, diagnostics, file watching, and packaging metadata.
+- Added scoped inline partial definition support for navigation and missing-partial diagnostics.
+- Added recognition for the Handlebars runtime partial `@partial-block`.
+- Added limited untrusted-workspace support while disabling file-creating Quick Fixes.
+
+### Fixed
+- Prevented malformed whitespace-control partial expressions from stalling the scanner.
+- Hardened partial path resolution against traversal, lexical-prefix confusion, and symlink escapes.
+- Fixed completion for quoted, unquoted, multiline, nested, and cursor-adjacent partial paths.
+- Fixed stale HBSDoc, diagnostics, and editor-provider state after document, partial file, or configuration changes.
+- Fixed Signature Help labels and active-parameter ranges to follow the VS Code API contract.
+- Fixed Quick Fix edits around whitespace-control delimiters, multiline calls, default values, and concurrent file creation.
+- Fixed HBSDoc parsing for case-insensitive tags, inline comments, consecutive aliases, and nested object-array types.
+
+### Improved
+- Improved parameter snippets for booleans, string unions, numbers, arrays, and object expressions.
+- Improved repeated filesystem lookup performance with per-component caching and targeted invalidation.
+- Updated `@poliklot/prettier-plugin-handlebars` to `0.3.2` and refreshed the TypeScript, VS Code, and packaging toolchain.
+- Reduced the VSIX payload by excluding source maps, declarations, CLI helpers, and dependency documentation.
+- Expanded unit, malformed-input, extension-host, multi-platform CI, and packaged-extension smoke coverage.
+
 ## [1.0.0] - 2026-05-25
 
 ### Fixed

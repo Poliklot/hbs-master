@@ -160,12 +160,12 @@ Install the generated `.vsix` in VS Code:
 2. Open the Extensions view.
 3. Click `...` in the Extensions view toolbar.
 4. Select `Install from VSIX...`.
-5. Choose `hbs-master-1.0.0.vsix`.
+5. Choose `hbs-master-1.1.0.vsix`.
 
 Or install from the command line:
 
 ```bash
-code --install-extension hbs-master-1.0.0.vsix
+code --install-extension hbs-master-1.1.0.vsix
 ```
 
 After installing, open a project with `.hbs` files and configure `hbsMaster.partialsPath` if your partials are not under `src/partials`.
