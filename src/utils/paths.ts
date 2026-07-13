@@ -31,7 +31,7 @@ export function normalizePartialPath(componentPath: string): string | null {
     .replace(/\\/g, '/')
     .replace(/\.(?:hbs|handlebars)$/i, '');
 
-  if (normalized.includes('\0')) return null;
+  if (/[\0-\x1f\x7f]/.test(normalized)) return null;
 
   const parts = normalized.split('/').filter(part => part && part !== '.');
   if (!parts.length || parts.some(part => part === '..')) return null;

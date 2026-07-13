@@ -123,6 +123,27 @@ test('parseHbsDoc preserves multiline object and object-array parameter shapes',
   assert.match(info.properties[0].type, /\}\[\]$/);
 });
 
+test('parseHbsDoc handles case-insensitive tags, inline comments, and consecutive aliases', () => {
+  const info = HbsDocParser.parseHbsDoc(`{{!--
+    @NAME Alert
+    @DESCRIPTION Status message.
+    @PARAMETERS
+    @DESCRIPTION Visual tone
+    tone?: "info" | "warning"; // optional tone
+    @TYPE Tone: "info" | "warning";
+    @TYPE Payload: {
+      value: string;
+    }
+  --}}`);
+
+  assert.equal(info.name, 'Alert');
+  assert.equal(info.description, 'Status message.');
+  assert.equal(info.properties[0].type, '"info" | "warning"');
+  assert.deepEqual(info.types.map(type => type.name), ['Tone', 'Payload']);
+  assert.equal(info.types[0].body, '"info" | "warning"');
+  assert.match(info.types[1].body, /value: string/);
+});
+
 test('createHoverInfo renders scalar props, nested object props and alias code blocks', () => {
   const info = HbsDocParser.parseHbsDoc(`{{!--
     @name Catalog
@@ -141,7 +162,7 @@ test('createHoverInfo renders scalar props, nested object props and alias code b
   --}}`);
 
   const hover = HbsDocParser.createHoverInfo(info);
-  assert.equal(hover.isTrusted, true);
+  assert.equal(hover.isTrusted, false);
   assert.match(hover.value, /### Catalog/);
   assert.match(hover.value, /Catalog component\./);
   assert.match(hover.value, /\*\*title\*\*: `string` _\(required\)_ — Heading text/);
@@ -149,6 +170,21 @@ test('createHoverInfo renders scalar props, nested object props and alias code b
   assert.match(hover.value, /- \*\*title\*\*: `string` — Card title/);
   assert.match(hover.value, /\*\*Type aliases:\*\*/);
   assert.match(hover.value, /```ts\nStringHTML: string/);
+});
+
+test('createHoverInfo preserves nested object-array shapes', () => {
+  const info = HbsDocParser.parseHbsDoc(`{{!--
+    @name Grid
+    @parameters
+    groups: {
+      cards: {
+        title: string;
+      }[]
+    };
+  --}}`);
+  const hover = HbsDocParser.createHoverInfo(info);
+
+  assert.match(hover.value, /\*\*cards\*\*: Object\[\]/);
 });
 
 test('parameter and unknown parameter hover render focused UX details', () => {
@@ -219,6 +255,26 @@ test('createCompletionItems builds snippets and markdown docs for params', () =>
   assert.equal(items[1].insertText.value, 'text="${1:OK}"');
   assert.match(items[1].documentation.value, /Visible label/);
   assert.match(items[1].documentation.value, /OK/);
+});
+
+test('createCompletionItems uses type-aware editable snippets', () => {
+  const items = HbsDocParser.createCompletionItems({
+    properties: [
+      { name: 'variant', type: "'primary' | 'secondary'", description: '', optional: true },
+      { name: 'count', type: 'number', description: '', optional: true },
+      { name: 'items', type: 'ItemData[]', description: '', optional: true },
+      { name: 'mixed', type: 'boolean | string', description: '', optional: true },
+    ],
+    types: [],
+  });
+
+  assert.deepEqual(items.map(item => item.insertText.value), [
+    'variant="${1|primary,secondary|}"',
+    'count=${1:0}',
+    'items=${1}',
+    'mixed=${1}',
+  ]);
+  assert.equal(items.every(item => item.detail.includes('HBSDoc parameter')), true);
 });
 
 test('component helpers understand multiline partials, quote styles and cursor boundaries', () => {

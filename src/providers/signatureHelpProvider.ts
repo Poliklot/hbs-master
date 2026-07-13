@@ -1,49 +1,76 @@
 import * as vscode from 'vscode';
-import { getConfig }   from '../utils/config';
-import { getDoc }      from '../utils/docs';
+import { getConfig } from '../utils/config';
+import { getDoc } from '../utils/docs';
 import { getHashPairAtPosition, getPartialInvocationAtPosition } from '../utils/partials';
+
+function displayType(type: string): string {
+  const trimmed = type.trim();
+  if (trimmed.startsWith('{') || trimmed.includes('\n')) {
+    return trimmed.endsWith('[]') ? 'Object[]' : 'Object';
+  }
+  return trimmed.replace(/\s+/g, ' ');
+}
 
 export function register(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     vscode.languages.registerSignatureHelpProvider(
       'handlebars',
       {
-        provideSignatureHelp(doc, pos) {
-          if (!getConfig(doc).get('enableSignatureHelp', true)) return;
+        provideSignatureHelp(document, position) {
+          if (!getConfig(document).get('enableSignatureHelp', true)) return;
 
-          const invocation = getPartialInvocationAtPosition(doc, pos);
+          const invocation = getPartialInvocationAtPosition(document, position);
           if (!invocation?.component) return;
 
-          const info = getDoc(invocation.component, doc);
+          const info = getDoc(invocation.component, document);
           if (!info) return;
 
-          const sigHelp = new vscode.SignatureHelp();
-          const sig = new vscode.SignatureInformation(
-            info.name || invocation.component,
-            info.description
-          );
+          const componentName = info.name || invocation.component;
+          let label = `${componentName}(`;
+          const labels: Array<[number, number]> = [];
 
-          sig.parameters = info.properties.map(p => {
-            const md = new vscode.MarkdownString();
-            md.appendMarkdown(`**${p.name}${p.optional ? '?' : ''}**: \`${p.type}\``);
-            if (p.description)  md.appendMarkdown(` — ${p.description}`);
-            if (p.defaultValue) md.appendMarkdown(`\n\n*По умолчанию:* \`${p.defaultValue}\``);
-            return new vscode.ParameterInformation(`${p.name}: ${p.type}`, md);
+          info.properties.forEach((property, index) => {
+            if (index) label += ', ';
+            const start = label.length;
+            label += `${property.name}${property.optional ? '?' : ''}: ${displayType(property.type)}`;
+            labels.push([start, label.length]);
+          });
+          label += ')';
+
+          const signature = new vscode.SignatureInformation(label, info.description);
+          signature.parameters = info.properties.map((property, index) => {
+            const markdown = new vscode.MarkdownString();
+            markdown.appendMarkdown(`**${property.name}${property.optional ? '?' : ''}**: \`${displayType(property.type)}\``);
+            markdown.appendMarkdown(`\n\n${property.optional ? 'Optional' : 'Required'}.`);
+            if (property.description) markdown.appendMarkdown(`\n\n${property.description}`);
+            if (property.defaultValue !== undefined) {
+              markdown.appendMarkdown(`\n\n*Default:* \`${property.defaultValue}\``);
+            }
+
+            const aliases = info.types.filter(alias => {
+              const escapedName = alias.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              return new RegExp(`(^|[^\\w$])${escapedName}($|[^\\w$])`).test(property.type);
+            });
+            aliases.forEach(alias => markdown.appendCodeblock(`${alias.name}: ${alias.body}`, 'ts'));
+
+            return new vscode.ParameterInformation(labels[index], markdown);
           });
 
-          // определяем активный параметр по названию
-          const pair = getHashPairAtPosition(doc, pos, invocation);
+          const pair = getHashPairAtPosition(document, position, invocation);
           const index = pair
-            ? info.properties.findIndex(p => p.name === pair.name)
+            ? info.properties.findIndex(property => property.name === pair.name)
             : 0;
-          sigHelp.activeParameter = index >= 0 ? index : 0;
+          const activeParameter = index >= 0 ? index : 0;
 
-          sigHelp.signatures      = [sig];
-          sigHelp.activeSignature = 0;
-          return sigHelp;
-        }
+          signature.activeParameter = activeParameter;
+          const signatureHelp = new vscode.SignatureHelp();
+          signatureHelp.signatures = [signature];
+          signatureHelp.activeSignature = 0;
+          signatureHelp.activeParameter = activeParameter;
+          return signatureHelp;
+        },
       },
-      ' ', '='
+      ' ', '=', ','
     )
   );
 }

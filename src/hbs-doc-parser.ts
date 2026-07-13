@@ -56,6 +56,25 @@ export class HbsDocParser {
     let inType     = false;
     let curAlias   : HbsDocTypeAlias | null = null;
 
+    const braceDelta = (value: string): number => {
+      let quote: string | null = null;
+      let balance = 0;
+
+      for (let index = 0; index < value.length; index++) {
+        const character = value[index];
+        if (quote) {
+          if (character === '\\') index++;
+          else if (character === quote) quote = null;
+          continue;
+        }
+        if (character === '"' || character === "'") quote = character;
+        else if (character === '{') balance++;
+        else if (character === '}') balance--;
+      }
+
+      return balance;
+    };
+
     /** Читает многострочный type начиная с firstLine.               *
      *  Останавливается, когда закрылся тот же уровень фигурных скобок
      *  и сразу после `}` идёт `;`, `,` или `[]` (для массивов объектов). */
@@ -63,10 +82,10 @@ export class HbsDocParser {
       const clean = (l: string) =>
         l.startsWith('@description ')
           ? '// ' + l.slice(13).trim()
-          : l.replace(/[;,]$/, '');
+          : l.replace(/\s+\/\/.*$/, '').replace(/[;,]$/, '');
 
       let out = [clean(first)];
-      let balance = first.split('{').length - first.split('}').length;
+      let balance = braceDelta(first);
 
       if (balance === 0) {
         if (lines[i + 1]?.trim() === '[]') {
@@ -79,7 +98,7 @@ export class HbsDocParser {
       while (++i < lines.length) {
         const l = lines[i];
         out.push(clean(l));
-        balance += l.split('{').length - l.split('}').length;
+        balance += braceDelta(l);
 
         if (balance === 0) {                         // скобки сошлись
           // если следующая строка – это одинокие []
@@ -97,16 +116,36 @@ export class HbsDocParser {
       const line = lines[i];
 
       /* ───────── meta-теги ───────── */
-      if (line.startsWith('@name '))       { info.name = line.slice(6).trim(); i++; continue; }
+      const nameTag = line.match(/^@name\s+(.+)$/i);
+      if (nameTag) { info.name = nameTag[1].trim(); i++; continue; }
       if (/^@(param(?:eter)?s|parametrs)\b/i.test(line)) {
+        if (curAlias?.name) info.types.push(curAlias);
+        curAlias = null;
         inParams = true;
         inType   = false;
         i++;
         continue;
       }
-      if (line.startsWith('@type'))        { inType   = true;  inParams = false; curAlias = { name:'', body:'' }; i++; continue; }
-      if (!inType && line.startsWith('@description ')) {
-        const desc = line.slice(13).trim();
+      const typeTag = line.match(/^@type\b\s*(.*)$/i);
+      if (typeTag) {
+        if (curAlias?.name) info.types.push(curAlias);
+        inType = true;
+        inParams = false;
+        curAlias = { name: '', body: '' };
+
+        const inlineAlias = typeTag[1].trim();
+        if (inlineAlias) {
+          const [name, ...rest] = inlineAlias.split(':');
+          curAlias.name = name.trim();
+          curAlias.body = rest.join(':').trim();
+          if (curAlias.body) curAlias.body = readType(curAlias.body);
+        }
+        i++;
+        continue;
+      }
+      const descriptionTag = line.match(/^@description\s+(.+)$/i);
+      if (!inType && descriptionTag) {
+        const desc = descriptionTag[1].trim();
         if (inParams) {
           pendingDesc = desc;
         } else {
@@ -115,7 +154,12 @@ export class HbsDocParser {
         i++;
         continue;
       }
-      if (line.startsWith('@default '))    { pendingDef  = line.slice(9 ).trim().replace(/^"(.*)"$/, '$1'); i++; continue; }
+      const defaultTag = line.match(/^@default\s+(.+)$/i);
+      if (defaultTag) {
+        pendingDef = defaultTag[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+        i++;
+        continue;
+      }
 
       /* ───────── alias type body ─── */
       if (inType) {
@@ -128,7 +172,7 @@ export class HbsDocParser {
         } else if (line) {
           curAlias!.body += '\n' + line;
         } else {
-          info.types.push(curAlias!);
+          if (curAlias?.name) info.types.push(curAlias);
           curAlias = null; inType = false;
         }
         i++; continue;
@@ -164,7 +208,7 @@ export class HbsDocParser {
       i++;
     }
 
-    if (curAlias) info.types.push(curAlias);
+    if (curAlias?.name) info.types.push(curAlias);
     return info;
   }
 
@@ -317,12 +361,8 @@ export class HbsDocParser {
   public static createCompletionItems(doc: HbsDocInfo): vscode.CompletionItem[] {
     return doc.properties.map(p => {
       const item = new vscode.CompletionItem(p.name, vscode.CompletionItemKind.Property);
-      const placeholder = p.defaultValue ?? p.type;
-      item.insertText = new vscode.SnippetString(
-        p.type.includes('boolean')
-          ? `${p.name}=\${1|true,false|}`
-          : `${p.name}="\${1:${placeholder}}"`
-      );
+      item.insertText = new vscode.SnippetString(this.createParameterSnippet(p));
+      item.detail = `${p.optional ? 'Optional' : 'Required'} HBSDoc parameter · ${this.getDisplayType(p.type)}`;
 
       const md = new vscode.MarkdownString();
       md.appendMarkdown(`**${p.name}${p.optional ? '?' : ''}**: ${this.inlineCode(p.type)}`);
@@ -352,9 +392,48 @@ export class HbsDocParser {
   }
 
   private static createMarkdown(): vscode.MarkdownString {
-    const md = new vscode.MarkdownString();
-    md.isTrusted = true;
-    return md;
+    return new vscode.MarkdownString();
+  }
+
+  private static escapeSnippetPlaceholder(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/\$/g, '\\$').replace(/}/g, '\\}');
+  }
+
+  private static escapeSnippetChoice(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/[,|]/g, match => `\\${match}`);
+  }
+
+  private static createParameterSnippet(property: HbsDocProperty): string {
+    const type = property.type.trim().replace(/\s+/g, ' ');
+
+    if (property.defaultValue !== undefined) {
+      const value = this.escapeSnippetPlaceholder(property.defaultValue.replace(/^(['"])(.*)\1$/, '$2'));
+      if (type === 'boolean' || /^(?:number|bigint)$/.test(type)) {
+        return `${property.name}=\${1:${value}}`;
+      }
+      return `${property.name}="\${1:${value}}"`;
+    }
+
+    if (type === 'boolean') return `${property.name}=\${1|true,false|}`;
+    if (/^(?:number|bigint)$/.test(type)) return `${property.name}=\${1:0}`;
+
+    const unionParts = type.split('|').map(part => part.trim()).filter(Boolean);
+    const literalValues = unionParts.map(part => part.match(/^(['"])(.*)\1$/)?.[2]);
+    if (unionParts.length > 1 && literalValues.every((value): value is string => value !== undefined)) {
+      const choices = literalValues.map(this.escapeSnippetChoice).join(',');
+      return `${property.name}="\${1|${choices}|}"`;
+    }
+
+    const singleLiteral = type.match(/^(['"])(.*)\1$/)?.[2];
+    if (singleLiteral !== undefined) {
+      return `${property.name}="\${1:${this.escapeSnippetPlaceholder(singleLiteral)}}"`;
+    }
+
+    if (type === 'string' || type === 'unknown' || type === 'any') {
+      return `${property.name}="\${1}"`;
+    }
+
+    return `${property.name}=\${1}`;
   }
 
   private static inlineCode(value: string): string {
@@ -466,7 +545,7 @@ export class HbsDocParser {
         const nested = this.collectBracedBlock(lines, i);
 
         // массив объектов, если после «}» стоят «[]» (в той же строке или отдельно)
-        const hasArray = /\}\s*\[\]\s*$/.test(nested.body) ||
+        const hasArray = nested.isArray ||
                         lines[nested.next]?.trim() === '[]';
 
         md += `${pad(level)}- **${name}${opt ? '?' : ''}**: ${hasArray ? 'Object[]' : 'Object'}`
@@ -507,7 +586,9 @@ export class HbsDocParser {
     } while (balance > 0 && i < lines.length);
 
     /* → если массив объектов заканчивается на "}[]",   убираем [] */
-    const joined = body.join('\n').replace(/}\s*\[\]$/, '}');
-    return { body: joined, next: i };
+    const rawBody = body.join('\n');
+    const isArray = /}\s*\[\]\s*$/.test(rawBody);
+    const joined = rawBody.replace(/}\s*\[\]\s*$/, '}');
+    return { body: joined, next: i, isArray };
   }
 }

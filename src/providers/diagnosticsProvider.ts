@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { getConfig } from '../utils/config';
-import { getDoc } from '../utils/docs';
+import { clearDocsCache, getDoc } from '../utils/docs';
 import { partialFilePath } from '../utils/paths';
 import { findPartialInvocations, getHashPairs } from '../utils/partials';
 
@@ -13,6 +13,10 @@ export const DiagnosticCode = {
   DuplicateParameter: 'hbs-master.duplicateParameter',
   MissingRequiredParameter: 'hbs-master.missingRequiredParameter',
 } as const;
+
+function isHandlebarsDocument(document: vscode.TextDocument): boolean {
+  return document.languageId === 'handlebars' && document.uri.scheme === 'file';
+}
 
 function configuredSeverity(document?: vscode.TextDocument): vscode.DiagnosticSeverity {
   const severity = getConfig(document).get<string>('diagnosticsSeverity', 'warning');
@@ -43,6 +47,7 @@ function createDiagnostic(
 }
 
 export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[] {
+  if (!isHandlebarsDocument(doc)) return [];
   if (!getConfig(doc).get('enableDiagnostics', true)) return [];
 
   const diagnostics: vscode.Diagnostic[] = [];
@@ -110,8 +115,13 @@ export function collectDiagnostics(doc: vscode.TextDocument): vscode.Diagnostic[
 export function register(ctx: vscode.ExtensionContext) {
   const collection = vscode.languages.createDiagnosticCollection('hbs-master');
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let refreshAllTimer: ReturnType<typeof setTimeout> | undefined;
 
   const refresh = (doc: vscode.TextDocument) => {
+    if (!isHandlebarsDocument(doc)) {
+      collection.delete(doc.uri);
+      return;
+    }
     collection.set(doc.uri, collectDiagnostics(doc));
   };
 
@@ -132,7 +142,31 @@ export function register(ctx: vscode.ExtensionContext) {
     }
   };
 
-  ctx.subscriptions.push(collection);
+  const scheduleRefreshAll = () => {
+    if (refreshAllTimer) clearTimeout(refreshAllTimer);
+    refreshAllTimer = setTimeout(() => {
+      refreshAllTimer = undefined;
+      clearDocsCache();
+      refreshAll();
+    }, 100);
+  };
+
+  const partialWatcher = vscode.workspace.createFileSystemWatcher('**/*.{hbs,handlebars}');
+  partialWatcher.onDidChange(scheduleRefreshAll);
+  partialWatcher.onDidCreate(scheduleRefreshAll);
+  partialWatcher.onDidDelete(scheduleRefreshAll);
+
+  ctx.subscriptions.push(
+    collection,
+    partialWatcher,
+    {
+      dispose() {
+        debounceTimers.forEach(timer => clearTimeout(timer));
+        debounceTimers.clear();
+        if (refreshAllTimer) clearTimeout(refreshAllTimer);
+      },
+    }
+  );
 
   if (vscode.workspace.onDidOpenTextDocument) {
     ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh));

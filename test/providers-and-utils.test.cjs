@@ -362,13 +362,17 @@ test('signature help provider exposes HBSDoc parameters and active parameter ind
   const document = new TestTextDocument(`{{> 'components/button' text="Save" disabled=true}}`);
 
   const help = provider.provideSignatureHelp(document, positionOf(document, 'true'));
-  assert.equal(help.signatures[0].label, 'Button');
+  assert.equal(
+    help.signatures[0].label,
+    'Button(text: string, disabled?: boolean, analytics-label?: string)'
+  );
   assert.deepEqual(help.signatures[0].parameters.map((p) => p.label), [
-    'text: string',
-    'disabled: boolean',
-    'analytics-label: string',
+    [7, 19],
+    [21, 39],
+    [41, 65],
   ]);
   assert.equal(help.activeParameter, 1);
+  assert.equal(help.signatures[0].activeParameter, 1);
 
   resetMock(root, { 'hbsMaster.enableSignatureHelp': false });
   assert.equal(provider.provideSignatureHelp(document, positionOf(document, 'true')), undefined);
@@ -434,6 +438,31 @@ test('diagnostics provider supports severity config', () => {
   assert.equal(diagnostics[0].code, 'hbs-master.unknownPartial');
 });
 
+test('diagnostics ignore non-Handlebars documents and refresh consumers after partial changes', async () => {
+  const { root, partials } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const javascript = new TestTextDocument(`{{> missing}}`, path.join(root, 'script.js'), 'javascript');
+  assert.deepEqual(diagnosticsProvider.collectDiagnostics(javascript), []);
+
+  const consumer = new TestTextDocument(`{{> newly-created}}`, path.join(root, 'page.hbs'));
+  vscode.__mock.setTextDocuments([consumer, javascript]);
+  diagnosticsProvider.register({ subscriptions: [] });
+
+  assert.deepEqual(
+    vscode.__mock.state.diagnostics.at(-1).diagnostics.map(diagnostic => diagnostic.message),
+    ['Unknown partial: newly-created']
+  );
+
+  fs.writeFileSync(path.join(partials, 'newly-created.hbs'), '<p>Created</p>');
+  vscode.__mock.state.watchers.at(-1).fireCreate(vscode.Uri.file(path.join(partials, 'newly-created.hbs')));
+  await new Promise(resolve => setTimeout(resolve, 130));
+
+  assert.deepEqual(vscode.__mock.state.diagnostics.at(-1).diagnostics, []);
+  assert.equal(vscode.__mock.state.diagnostics.some(entry => entry.uri.fsPath.endsWith('script.js')), false);
+});
+
 test('code action provider creates quick fixes for diagnostics', () => {
   const { root } = makeWorkspace();
   resetMock(root);
@@ -454,11 +483,34 @@ test('code action provider creates quick fixes for diagnostics', () => {
   const removeActions = codeActions.createCodeActions(document, duplicate.range, [duplicate]);
   assert.equal(removeActions[0].title, 'Remove parameter "text"');
   assert.equal(removeActions[0].edit.operations[0].type, 'delete');
+  assert.equal(document.getText(removeActions[0].edit.operations[0].range), ' text="Again"');
 
   const missing = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.missingRequiredParameter');
   const addActions = codeActions.createCodeActions(document, missing.range, [missing]);
   assert.equal(addActions[0].title, 'Add required parameter "title"');
-  assert.equal(addActions[0].edit.operations[0].newText, ' title="string"');
+  assert.equal(addActions[0].edit.operations[0].newText, ' title=""');
+});
+
+test('code actions preserve whitespace control and format multiline edits', () => {
+  const { root } = makeWorkspace();
+  resetMock(root);
+
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const codeActions = fresh('../dist/providers/codeActionProvider.js');
+  const document = new TestTextDocument(`{{> 'components/card'
+  bogus=true
+~}}`);
+  const diagnostics = diagnosticsProvider.collectDiagnostics(document);
+
+  const unknown = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.unknownParameter');
+  const removal = codeActions.createCodeActions(document, unknown.range, [unknown])[0].edit.operations[0];
+  assert.equal(document.getText(removal.range), '  bogus=true\n');
+
+  const missing = diagnostics.find(diagnostic => diagnostic.code === 'hbs-master.missingRequiredParameter');
+  const insertion = codeActions.createCodeActions(document, missing.range, [missing])[0].edit.operations[0];
+  assert.equal(insertion.newText, '  title=""\n');
+  assert.equal(insertion.position.line, 2);
+  assert.equal(insertion.position.character, 0);
 });
 
 test('extension activation wires every provider and document watcher', () => {
@@ -477,7 +529,7 @@ test('extension activation wires every provider and document watcher', () => {
   assert.equal(vscode.__mock.registrations('codeAction').length, 1);
   assert.equal(vscode.__mock.registrations('completion').length, 2);
   assert.equal(vscode.__mock.state.registeredCommands.some((command) => command.command === 'hbsMaster.createPartial'), true);
-  assert.equal(vscode.__mock.state.watchers.length, 1);
+  assert.equal(vscode.__mock.state.watchers.length, 2);
   assert.equal(vscode.__mock.state.diagnostics.length, 0);
   assert.ok(vscode.__mock.state.logs.some((line) => line.includes('HBS Master activated!')));
 });
