@@ -128,11 +128,11 @@
     ]
   },
   "devDependencies": {
-    "@types/node": "^22.15.29",
+    "@types/node": "^22.20.1",
     "@types/vscode": "1.101.0",
-    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@poliklot/prettier-plugin-handlebars": "0.3.3"
