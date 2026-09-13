@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.1] - Unreleased
+## [1.1.1] - 2026-09-13
 
 ### Fixed
 - Keep the Prettier runtime required by the bundled Handlebars parser in the VSIX, preventing a missing dependency from silently disabling AST-backed partial filtering and inline-partial scoping.
