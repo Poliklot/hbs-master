@@ -42,8 +42,21 @@ jobs:
       - name: Integration smoke test
         run: xvfb-run -a npm run test:integration
 
+      - name: Minimum supported VS Code smoke test
+        env:
+          VSCODE_TEST_VERSION: '1.101.0'
+        run: xvfb-run -a npm run test:integration
+
       - name: Package VSIX
         run: npm run package
+
+      - name: Smoke test the packaged extension outside the source tree
+        env:
+          HBS_MASTER_EXTENSION_PATH: ${{ runner.temp }}/hbs-master-vsix/extension
+        run: |
+          VSIX_NAME="$(node -p "const p = require('./package.json'); p.name + '-' + p.version + '.vsix'")"
+          python3 -m zipfile -e "$VSIX_NAME" "$RUNNER_TEMP/hbs-master-vsix"
+          xvfb-run -a npm run test:integration
 
   cross-platform:
     name: Test (${{ matrix.os }})

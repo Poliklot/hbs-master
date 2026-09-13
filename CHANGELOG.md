@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.1] - Unreleased
+
+### Fixed
+- Keep the Prettier runtime required by the bundled Handlebars parser in the VSIX, preventing a missing dependency from silently disabling AST-backed partial filtering and inline-partial scoping.
+- Update the build-only `js-yaml` lockfile entry to `4.3.2` to resolve [GHSA-2883-xcg3-v3hh](https://github.com/advisories/GHSA-2883-xcg3-v3hh), matching the update proposed in [Dependabot #12](https://github.com/Poliklot/hbs-master/pull/12).
+
+### Improved
+- Update the bundled `@poliklot/prettier-plugin-handlebars` to `0.4.1`, using `template-format-core` `0.2.0`. HBS Master continues to use the parser for editor tooling; this does not add a formatter provider.
+- Verify the actual VSIX file set in an isolated process, including public parser loading, comment filtering, source ranges, and scoped inline partials.
+- Cover parser behavior after script bodies and inside comments in the VS Code extension-host suite.
+
 ## [1.1.0] - 2026-07-13
 
 ### Added

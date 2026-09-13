@@ -1,0 +1,8 @@
+{{!-- {{> comment-only}} --}}
+<script data-label="a > b">const html = "<style>raw text</style>";</script>
+{{> button text="After script"}}
+{{#if show}}
+  {{#*inline "scoped-label"}}<b>Scoped</b>{{/inline}}
+  {{> scoped-label}}
+{{/if}}
+{{> scoped-label}}
