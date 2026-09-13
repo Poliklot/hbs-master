@@ -3,9 +3,11 @@
 .github/**
 .vscode/**
 .vscode-test/**
-node_modules/prettier/**
-!node_modules/prettier/package.json
-!node_modules/prettier/doc.js
+# The public Handlebars plugin entry point loads template-format-core/prettier.
+# Keep Prettier's runtime dependency tree, not a fragile doc.js-only allowlist.
+node_modules/prettier/README.md
+node_modules/prettier/**/*.d.ts
+node_modules/prettier/bin/**
 node_modules/@poliklot/prettier-plugin-handlebars/CHANGELOG.md
 node_modules/@poliklot/prettier-plugin-handlebars/README.md
 node_modules/@poliklot/prettier-plugin-handlebars/docs/**

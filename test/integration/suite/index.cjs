@@ -34,6 +34,11 @@ async function run() {
 
   const extension = vscode.extensions.getExtension('poliklot.hbs-master');
   assert.ok(extension, 'Extension poliklot.hbs-master should be discoverable');
+  assert.equal(
+    fs.realpathSync(extension.extensionPath),
+    fs.realpathSync(process.env.HBS_MASTER_EXPECTED_EXTENSION_PATH),
+    'The test must load the requested source/packaged extension, not another installation'
+  );
   await extension.activate();
   assert.equal(extension.isActive, true);
 
@@ -161,6 +166,37 @@ async function run() {
   } finally {
     if (fs.existsSync(missingPartial)) fs.unlinkSync(missingPartial);
   }
+
+  const parserDocument = await vscode.workspace.openTextDocument(
+    vscode.Uri.file(path.join(workspaceRoot, 'pages', 'parser-contract.handlebars'))
+  );
+  await vscode.window.showTextDocument(parserDocument);
+  assert.equal(parserDocument.languageId, 'handlebars');
+  const afterScriptDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider', parserDocument.uri, positionOf(parserDocument, 'button')
+  );
+  assert.equal(afterScriptDefinitions.length, 1);
+  assert.equal(afterScriptDefinitions[0].uri.fsPath, path.join(workspaceRoot, 'components', 'button.hbs'));
+  const commentDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider', parserDocument.uri, positionOf(parserDocument, 'comment-only')
+  );
+  assert.equal(commentDefinitions.length, 0);
+  const scopedOffsets = [...parserDocument.getText().matchAll(/\{\{> scoped-label/g)].map(match => match.index + 4);
+  assert.equal(scopedOffsets.length, 2);
+  const insideDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider', parserDocument.uri, parserDocument.positionAt(scopedOffsets[0])
+  );
+  assert.equal(insideDefinitions.length, 1);
+  assert.equal(insideDefinitions[0].uri.toString(), parserDocument.uri.toString());
+  const outsideDefinitions = await vscode.commands.executeCommand(
+    'vscode.executeDefinitionProvider', parserDocument.uri, parserDocument.positionAt(scopedOffsets[1])
+  );
+  assert.equal(outsideDefinitions.length, 0);
+  const parserDiagnostics = await waitFor(() => {
+    const current = vscode.languages.getDiagnostics(parserDocument.uri);
+    return current.some(diagnostic => diagnostic.message === 'Unknown partial: scoped-label') ? current : null;
+  }, 'AST-backed partial diagnostics');
+  assert.deepEqual(parserDiagnostics.map(diagnostic => diagnostic.message), ['Unknown partial: scoped-label']);
 }
 
 module.exports = { run };
