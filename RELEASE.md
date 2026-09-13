@@ -2,10 +2,12 @@
 
 ## 1.1.1 readiness
 
-This is a prepared release candidate, not a Marketplace publication. Local
-checks below were run on macOS arm64; remote checks must pass before merge.
+This checklist records release preparation, not proof of Marketplace publication.
+Local checks below were run on macOS arm64. Live merge and publication status is
+tracked in [#13](https://github.com/Poliklot/hbs-master/issues/13) and the
+[GitHub Release](https://github.com/Poliklot/hbs-master/releases/tag/v1.1.1).
 
-- [x] `CHANGELOG.md` contains user-facing `1.1.1` notes marked Unreleased.
+- [x] `CHANGELOG.md` contains user-facing `1.1.1` notes dated `2026-09-13`.
 - [x] `package.json` and `package-lock.json` use version `1.1.1`.
 - [x] The bundled Handlebars plugin is exactly `0.4.1`; the lockfile resolves `template-format-core` `0.2.0`.
 - [x] `npm ci` succeeds with a fresh npm cache.
@@ -17,7 +19,7 @@ checks below were run on macOS arm64; remote checks must pass before merge.
 - [x] The actual VSIX contains the required runtime dependencies, without sources, tests, source maps, declarations, local files, or development-only CLI helpers.
 - [x] The VSIX installs into an isolated extensions directory and passes the extension-host suite on VS Code `1.101.0` from that installed directory.
 - [x] The actual VSIX passes the extension-host suite on current stable VS Code `1.137.0`.
-- [ ] GitHub Actions checks succeed for this PR on Linux, macOS, and Windows.
+- [x] GitHub Actions checks succeed for [PR #14](https://github.com/Poliklot/hbs-master/pull/14) on Linux, macOS, and Windows; rerun them after any final preparation changes before merge.
 - [ ] The fully green PR is merged and the release VSIX is rebuilt from the merged commit.
 - [ ] The final Marketplace version and GitHub Release are both `1.1.1`.
 
@@ -76,12 +78,12 @@ different installed/source-tree copy. CI runs the packaged-extension check too.
 - Shared-core migration: [template-format-core #2](https://github.com/Poliklot/template-format-core/issues/2).
 - Handlebars integration: [plugin #82](https://github.com/Poliklot/prettier-plugin-handlebars/pull/82).
 - Published Handlebars `0.4.1`: [release #83](https://github.com/Poliklot/prettier-plugin-handlebars/pull/83).
-- Build-only audit fix: [Dependabot #12](https://github.com/Poliklot/hbs-master/pull/12). This candidate includes the same three-line `js-yaml` lockfile update, without adding a direct dependency or running a broad audit fix. Prefer merging #12 first; the overlapping lockfile change can then be reconciled normally.
+- Build-only audit fix: [Dependabot #12](https://github.com/Poliklot/hbs-master/pull/12). It was merged before [implementation #14](https://github.com/Poliklot/hbs-master/pull/14); the identical three-line `js-yaml` lockfile update merged without conflicts. No direct dependency was added and no broad audit fix was run.
 
 ## Publication order
 
 1. Complete remote checks and merge the PR into `master`.
-2. Replace the Unreleased marker with the actual release date as part of release preparation.
+2. Confirm the prepared changelog date is the actual release date.
 3. Build and inspect `hbs-master-1.1.1.vsix` from the final merged release commit.
 4. Publish the **verified VSIX** as `poliklot.hbs-master` `1.1.1` to the VS Code Marketplace.
 5. Create tag `v1.1.1` and one GitHub Release containing that same VSIX.
