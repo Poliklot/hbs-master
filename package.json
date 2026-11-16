@@ -136,5 +136,10 @@
   },
   "dependencies": {
     "@poliklot/prettier-plugin-handlebars": "0.4.1"
+  },
+  "overrides": {
+    "@vscode/vsce": {
+      "minimatch": "11.0.8"
+    }
   }
 }
