@@ -548,6 +548,34 @@ test('diagnostics ignore non-Handlebars documents and refresh consumers after pa
   assert.equal(vscode.__mock.state.diagnostics.some(entry => entry.uri.fsPath.endsWith('script.js')), false);
 });
 
+test('opening a newly created partial refreshes consumers without a watcher event', async () => {
+  const { root, partials } = makeWorkspace();
+  resetMock(root);
+  const diagnosticsProvider = fresh('../dist/providers/diagnosticsProvider.js');
+  const consumer = new TestTextDocument('{{> newly-created}}', path.join(root, 'page.hbs'));
+  const context = { subscriptions: [] };
+
+  try {
+    vscode.__mock.setTextDocuments([consumer]);
+    diagnosticsProvider.register(context);
+    const collection = context.subscriptions.find(subscription => subscription.entries instanceof Map);
+    assert.deepEqual(collection.entries.get(consumer.uri.toString()).map(diagnostic => diagnostic.message),
+      ['Unknown partial: newly-created']);
+
+    const partialPath = path.join(partials, 'newly-created.hbs');
+    fs.writeFileSync(partialPath, '<p>Created</p>');
+    const partial = new TestTextDocument('<p>Created</p>', partialPath);
+    vscode.__mock.setTextDocuments([consumer, partial]);
+    for (const listener of vscode.__mock.state.openDocumentListeners) listener(partial);
+    await new Promise(resolve => setTimeout(resolve, 130));
+
+    assert.deepEqual(collection.entries.get(consumer.uri.toString()), []);
+  } finally {
+    for (const subscription of context.subscriptions) subscription.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('code action provider creates quick fixes for diagnostics', () => {
   const { root } = makeWorkspace();
   resetMock(root);

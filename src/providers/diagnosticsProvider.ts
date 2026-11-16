@@ -192,7 +192,13 @@ export function register(ctx: vscode.ExtensionContext) {
   );
 
   if (vscode.workspace.onDidOpenTextDocument) {
-    ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(refresh));
+    ctx.subscriptions.push(vscode.workspace.onDidOpenTextDocument(doc => {
+      if (partialRootForFile(doc.uri.fsPath, doc)) {
+        scheduleRefreshAll();
+      } else {
+        refresh(doc);
+      }
+    }));
   }
 
   if (vscode.workspace.onDidChangeTextDocument) {
